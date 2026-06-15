@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>中控台 - 雙螢幕管理系統</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <style>
+        .status-card {
+            transition: all 0.3s;
+        }
+        .status-normal {
+            background-color: #d4edda;
+            border-color: #c3e6cb;
+        }
+        .status-alarm {
+            background-color: #f8d7da;
+            border-color: #f5c6cb;
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.02); }
+            100% { transform: scale(1); }
+        }
+        .stat-number {
+            font-size: 3rem;
+            font-weight: bold;
+            color: #0d6efd;
+        }
+    </style>
+</head>
+<body class="bg-light">
+    <div class="container py-5">
+        <h1 class="mb-4 text-center">雙螢幕中控台</h1>
+        
+        <div class="row g-4">
+            <!-- 系統狀態 -->
+            <div class="col-md-6">
+                <div class="card h-100">
+                    <div class="card-header">系統狀態</div>
+                    <div class="card-body text-center d-flex flex-column justify-content-center" id="statusCard">
+                        <h2 id="statusText">載入中...</h2>
+                        <div class="mt-4">
+                            <button id="triggerBtn" class="btn btn-danger btn-lg w-100 mb-2" onclick="triggerAlarm()">
+                                ⚠️ 觸發警報 (Trigger Alarm)
+                            </button>
+                            <button id="resetBtn" class="btn btn-success btn-lg w-100" onclick="resetAlarm()" style="display:none;">
+                                ✅ 恢復正常 (Reset)
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- QR Code 統計 -->
+            <div class="col-md-6">
+                <div class="card h-100">
+                    <div class="card-header">即時數據</div>
+                    <div class="card-body text-center">
+                        <h5>QR Code 掃描人數</h5>
+                        <div class="stat-number" id="qrCount">0</div>
+                        <p class="text-muted">即時更新中...</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 跑馬燈設置 -->
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">跑馬燈控制 (Screen A)</div>
+                    <div class="card-body">
+                        <div class="input-group mb-3">
+                            <input type="text" id="marqueeInput" class="form-control" placeholder="輸入跑馬燈文字...">
+                            <button class="btn btn-primary" onclick="updateMarquee()">發送更新</button>
+                        </div>
+                        <div class="alert alert-info">
+                            當前內容: <span id="currentMarquee">-</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 地震影片設置 (Screen B) -->
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">警報影片設定 (Screen B)</div>
+                    <div class="card-body">
+                        <div class="input-group mb-3">
+                            <input type="text" id="videoInput" class="form-control" placeholder="輸入影片檔名 (如 earthquake_alert.mp4)...">
+                            <button class="btn btn-primary" onclick="updateVideo()">更新影片設定</button>
+                        </div>
+                        <div class="alert alert-warning">
+                            當前設定: <span id="currentVideo">-</span> (請確保 App 端已下載此檔名之影片)
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        let currentMode = 'NORMAL';
+
+        // 初始化
+        async function init() {
+            await fetchStatus();
+            setupSocket();
+        }
+
+        async function fetchStatus() {
+            try {
+                const [statusRes, statsRes] = await Promise.all([
+                    fetch('/api/v2/control/status'),
+                    fetch('/api/v2/stats/qr')
+                ]);
+                
+                const statusData = await statusRes.json();
+                const statsData = await statsRes.json();
+
+                updateUI(statusData);
+                document.getElementById('qrCount').innerText = statsData.count;
+            } catch (e) {
+                console.error("Failed to fetch initial status", e);
+            }
+        }
+
+        function setupSocket() {
+            socket.on('connect', () => {
+                console.log('Connected to server');
+            });
+
+            socket.on('system_state_update', (data) => {
+                console.log('State Update:', data);
+                updateUI(data);
+            });
+
+            socket.on('stats_update', (data) => {
+                console.log('Stats Update:', data);
+                document.getElementById('qrCount').innerText = data.qr_scan_count;
+            });
+        }
+
+        function updateUI(data) {
+            const statusCard = document.getElementById('statusCard');
+            const statusText = document.getElementById('statusText');
+            const triggerBtn = document.getElementById('triggerBtn');
+            const resetBtn = document.getElementById('resetBtn');
+            const currentMarquee = document.getElementById('currentMarquee');
+            const currentVideo = document.getElementById('currentVideo');
+
+            currentMarquee.innerText = data.marquee_text;
+            if(currentVideo) currentVideo.innerText = data.emergency_video || '未設定';
+
+            if (data.is_alarm_active) {
+                currentMode = 'ALARM';
+                statusCard.className = 'card-body text-center d-flex flex-column justify-content-center status-alarm';
+                statusText.innerText = '⚠️ 警報模式 (ALARM)';
+                triggerBtn.style.display = 'none';
+                resetBtn.style.display = 'block';
+            } else {
+                currentMode = 'NORMAL';
+                statusCard.className = 'card-body text-center d-flex flex-column justify-content-center status-normal';
+                statusText.innerText = '🟢 正常模式 (Normal)';
+                triggerBtn.style.display = 'block';
+                resetBtn.style.display = 'none';
+            }
+        }
+
+        async function triggerAlarm() {
+            if(!confirm("確定要觸發警報嗎？這將會中斷所有螢幕播放！")) return;
+            await fetch('/api/v2/control/trigger', { method: 'POST' });
+        }
+
+        async function resetAlarm() {
+            await fetch('/api/v2/control/reset', { method: 'POST' });
+        }
+
+        async function updateMarquee() {
+            const text = document.getElementById('marqueeInput').value;
+            if (!text) return;
+            
+            await fetch('/api/v2/config/marquee', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text })
+            });
+            document.getElementById('marqueeInput').value = '';
+        }
+
+        async function updateVideo() {
+            const filename = document.getElementById('videoInput').value;
+            if (!filename) return;
+            
+            await fetch('/api/v2/config/video', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ filename })
+            });
+            document.getElementById('videoInput').value = '';
+        }
+
+        init();
+    </script>
+</body>
+</html>

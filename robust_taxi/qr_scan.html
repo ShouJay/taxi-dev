@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>掃描 QR Code</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            width: 100vw;
+            height: 100vh;
+            overflow: hidden;
+            background-color: #000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #videoContainer {
+            width: 100%;
+            height: 100%;
+            position: relative;
+        }
+
+        #videoPlayer {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            background-color: #000;
+            cursor: pointer;
+            pointer-events: auto;
+        }
+
+        /* 載入提示 */
+        #loadingMessage {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-size: 1.5rem;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            z-index: 10;
+            display: none;
+        }
+
+        #loadingMessage.show {
+            display: block;
+        }
+
+        /* 錯誤訊息 */
+        #errorMessage {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #ff6b6b;
+            font-size: 1.2rem;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            text-align: center;
+            padding: 2rem;
+            background: rgba(0, 0, 0, 0.8);
+            border-radius: 8px;
+            z-index: 20;
+            display: none;
+        }
+
+        #errorMessage.show {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div id="videoContainer">
+        <div id="loadingMessage">載入中...</div>
+        <div id="errorMessage"></div>
+        <video id="videoPlayer" autoplay muted playsinline>
+            您的瀏覽器不支援影片播放。
+        </video>
+    </div>
+
+    <script>
+        const videoPlayer = document.getElementById('videoPlayer');
+        const loadingMessage = document.getElementById('loadingMessage');
+        const errorMessage = document.getElementById('errorMessage');
+
+        // 通知管理員系統：使用者掃描QRcode
+        async function notifyAdminSystem() {
+            try {
+                // 使用新的 V2 API 來記錄並增加計數
+                const response = await fetch('/api/v2/stats/qr', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        timestamp: new Date().toISOString()
+                    })
+                });
+
+                if (!response.ok) {
+                    console.warn('通知管理員系統失敗:', response.status);
+                } else {
+                    const data = await response.json();
+                    console.log('已通知管理員系統 (Count: ' + data.count + ')');
+                }
+            } catch (error) {
+                console.error('通知管理員系統時發生錯誤:', error);
+            }
+        }
+
+        // 載入並播放影片
+        function loadVideo() {
+            loadingMessage.classList.add('show');
+            
+            // 設置影片來源
+            videoPlayer.src = '/asset/get_ticket.mp4';
+            
+            // 影片載入成功
+            videoPlayer.addEventListener('loadeddata', function() {
+                loadingMessage.classList.remove('show');
+                videoPlayer.play().catch(err => {
+                    console.error('自動播放失敗:', err);
+                    showError('無法自動播放影片，請點擊畫面播放');
+                });
+            });
+
+            // 影片載入錯誤
+            videoPlayer.addEventListener('error', function(e) {
+                loadingMessage.classList.remove('show');
+                const error = videoPlayer.error;
+                let errorMsg = '無法載入影片檔案。';
+                
+                if (error) {
+                    switch(error.code) {
+                        case error.MEDIA_ERR_ABORTED:
+                            errorMsg = '影片載入被中止。';
+                            break;
+                        case error.MEDIA_ERR_NETWORK:
+                            errorMsg = '網路錯誤，無法載入影片。';
+                            break;
+                        case error.MEDIA_ERR_DECODE:
+                            errorMsg = '影片解碼錯誤。';
+                            break;
+                        case error.MEDIA_ERR_SRC_NOT_SUPPORTED:
+                            errorMsg = '不支援的影片格式或路徑錯誤。';
+                            break;
+                        default:
+                            errorMsg = `無法載入影片檔案 (錯誤代碼: ${error.code})。`;
+                    }
+                }
+                
+                showError(errorMsg + ' 路徑: /asset/get_ticket.mp4');
+                console.error('影片載入錯誤:', {
+                    error: error,
+                    code: error ? error.code : 'unknown',
+                    message: error ? error.message : 'unknown',
+                    src: videoPlayer.src
+                });
+            });
+
+            // 影片播放結束後定格在最後一幀（不循環）
+            videoPlayer.addEventListener('ended', function() {
+                // 定格在最後一幀，不做任何操作
+                console.log('影片播放完成，定格在最後一幀');
+            });
+
+            // 點擊畫面直接重新播放影片（不支援暫停/播放）
+            videoPlayer.addEventListener('click', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                // 重置到開頭並播放
+                videoPlayer.currentTime = 0;
+                videoPlayer.play().catch(err => {
+                    console.error('重新播放失敗:', err);
+                });
+            });
+            
+            // 禁用影片的預設控制功能
+            videoPlayer.controls = false;
+            videoPlayer.disablePictureInPicture = true;
+        }
+
+        // 顯示錯誤訊息
+        function showError(message) {
+            errorMessage.textContent = message;
+            errorMessage.classList.add('show');
+        }
+
+        // 頁面載入時執行
+        window.addEventListener('DOMContentLoaded', function() {
+            // 先通知管理員系統
+            notifyAdminSystem();
+            
+            // 然後載入影片
+            loadVideo();
+        });
+
+        // 處理全螢幕相關
+        document.addEventListener('fullscreenchange', function() {
+            if (!document.fullscreenElement) {
+                // 如果退出全螢幕，嘗試重新進入（可選）
+                // 這裡不自動重新進入，讓用戶控制
+            }
+        });
+
+        // 嘗試進入全螢幕模式（需要用戶交互）
+        function requestFullscreen() {
+            const container = document.getElementById('videoContainer');
+            if (container.requestFullscreen) {
+                container.requestFullscreen().catch(err => {
+                    console.log('無法進入全螢幕模式:', err);
+                });
+            } else if (container.webkitRequestFullscreen) {
+                container.webkitRequestFullscreen();
+            } else if (container.mozRequestFullScreen) {
+                container.mozRequestFullScreen();
+            } else if (container.msRequestFullscreen) {
+                container.msRequestFullscreen();
+            }
+        }
+
+        // 當用戶首次點擊時，嘗試進入全螢幕（僅一次）
+        let fullscreenRequested = false;
+        document.addEventListener('click', function(e) {
+            // 如果點擊的是影片本身，不處理全螢幕（由影片的點擊事件處理重新播放）
+            if (e.target === videoPlayer) {
+                return;
+            }
+            // 首次點擊時進入全螢幕
+            if (!fullscreenRequested && !document.fullscreenElement) {
+                fullscreenRequested = true;
+                requestFullscreen();
+            }
+        }, { once: true });
+    </script>
+</body>
+</html>
+

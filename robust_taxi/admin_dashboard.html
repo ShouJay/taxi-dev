@@ -1,0 +1,2645 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>智能計程車廣告管理系統</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: #f5f7fa;
+            color: #333;
+        }
+
+        /* 頂部導航欄 */
+        .navbar {
+            background-color: #2c3e50;
+            color: white;
+            padding: 1rem 2rem;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
+        }
+
+        .navbar h1 {
+            font-size: 1.5rem;
+            font-weight: 500;
+        }
+
+        .navbar-actions {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            font-size: 0.95rem;
+        }
+
+        .navbar-actions span {
+            color: #ecf0f1;
+            font-weight: 500;
+        }
+
+        /* 主要容器 */
+        .container {
+            display: flex;
+            min-height: calc(100vh - 60px);
+            position: relative;
+        }
+
+        /* 側邊欄 */
+        .sidebar {
+            width: 250px;
+            background-color: #34495e;
+            padding: 1rem 0;
+            flex-shrink: 0;
+            transform: translateX(0);
+            transition: transform 0.3s ease;
+        }
+
+        .sidebar.open {
+            transform: translateX(0);
+        }
+
+        .sidebar-overlay {
+            display: none;
+            position: fixed;
+            top: 60px;
+            left: 0;
+            width: 100%;
+            height: calc(100vh - 60px);
+            background: rgba(0, 0, 0, 0.4);
+            z-index: 900;
+        }
+
+        .navbar-left {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .mobile-only {
+            display: none;
+        }
+
+        body.sidebar-open {
+            overflow: hidden;
+        }
+
+        .sidebar-item {
+            padding: 1rem 1.5rem;
+            color: #ecf0f1;
+            cursor: pointer;
+            transition: background-color 0.3s;
+            border: none;
+            background: none;
+            width: 100%;
+            text-align: left;
+            font-size: 1rem;
+        }
+
+        .sidebar-item:hover {
+            background-color: #2c3e50;
+        }
+
+        .sidebar-item.active {
+            background-color: #3498db;
+        }
+
+        .sidebar-item i {
+            margin-right: 0.5rem;
+            width: 20px;
+            display: inline-block;
+        }
+
+        /* 主內容區 */
+        .main-content {
+            flex: 1;
+            padding: 2rem;
+            overflow-y: auto;
+        }
+
+        /* 卡片樣式 */
+        .card {
+            background: white;
+            border-radius: 8px;
+            padding: 1.5rem;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 1.5rem;
+        }
+
+        .card-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            color: #2c3e50;
+        }
+
+        /* 統計卡片 */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        .stat-card {
+            background: white;
+            border-radius: 8px;
+            padding: 1.5rem;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 2rem;
+            font-weight: 700;
+            color: #3498db;
+        }
+
+        .stat-label {
+            color: #7f8c8d;
+            margin-top: 0.5rem;
+        }
+
+        /* 表格樣式 */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th, td {
+            padding: 0.75rem;
+            text-align: left;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        th {
+            background-color: #f8f9fa;
+            font-weight: 600;
+            color: #2c3e50;
+        }
+
+        tr:hover {
+            background-color: #f8f9fa;
+        }
+
+        /* 按鈕樣式 */
+        .btn {
+            padding: 0.5rem 1rem;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.875rem;
+            transition: all 0.3s;
+        }
+
+        .btn-primary {
+            background-color: #3498db;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background-color: #2980b9;
+        }
+
+        .btn-success {
+            background-color: #27ae60;
+            color: white;
+        }
+
+        .btn-success:hover {
+            background-color: #229954;
+        }
+
+        .btn-danger {
+            background-color: #e74c3c;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background-color: #c0392b;
+        }
+
+        .btn-small {
+            padding: 0.25rem 0.5rem;
+            font-size: 0.75rem;
+        }
+
+        /* 表單樣式 */
+        .form-group {
+            margin-bottom: 1rem;
+        }
+
+        .form-label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 500;
+        }
+
+        .form-control {
+            width: 100%;
+            padding: 0.5rem;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 1rem;
+        }
+
+        .form-control:focus {
+            outline: none;
+            border-color: #3498db;
+        }
+
+        /* 進度條 */
+        .progress {
+            width: 100%;
+            height: 20px;
+            background-color: #e0e0e0;
+            border-radius: 10px;
+            overflow: hidden;
+            margin-top: 0.5rem;
+        }
+
+        .progress-bar {
+            height: 100%;
+            background-color: #3498db;
+            transition: width 0.3s ease;
+        }
+
+        /* 日誌區域 */
+        .log-container {
+            background-color: #2c3e50;
+            color: #ecf0f1;
+            padding: 1rem;
+            border-radius: 4px;
+            height: 200px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 0.875rem;
+        }
+
+        .log-entry {
+            margin-bottom: 0.25rem;
+        }
+
+        .log-time {
+            color: #95a5a6;
+        }
+
+        /* 分頁內容 */
+        .page-content {
+            display: none;
+        }
+
+        .page-content.active {
+            display: block;
+        }
+
+        /* 設備卡片 */
+        .device-card {
+            background: white;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 1rem;
+            margin-bottom: 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .device-info {
+            flex: 1;
+        }
+
+        .device-status {
+            display: inline-block;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+
+        .status-online {
+            background-color: #d4edda;
+            color: #155724;
+        }
+
+        .status-offline {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+
+        @media (max-width: 1024px) {
+            .navbar-actions {
+                gap: 0.5rem;
+                flex-wrap: wrap;
+            }
+        }
+
+        /* 響應式設計 */
+        @media (max-width: 768px) {
+            .container {
+                flex-direction: column;
+            }
+
+            .navbar {
+                flex-wrap: wrap;
+                gap: 0.75rem;
+            }
+
+            .mobile-only {
+                display: inline-flex;
+                align-items: center;
+            }
+
+            .sidebar {
+                position: fixed;
+                top: 60px;
+                left: 0;
+                height: calc(100vh - 60px);
+                width: 80%;
+                max-width: 280px;
+                transform: translateX(-100%);
+                z-index: 1000;
+                overflow-y: auto;
+                box-shadow: 2px 0 8px rgba(0, 0, 0, 0.2);
+            }
+
+            .sidebar.open {
+                transform: translateX(0);
+            }
+
+            .sidebar-overlay.active {
+                display: block;
+            }
+            
+            .main-content {
+                padding: 1rem;
+            }
+
+            .card {
+                padding: 1rem;
+                overflow-x: auto;
+            }
+
+            .card table {
+                min-width: 520px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .navbar-left h1 {
+                font-size: 1.2rem;
+            }
+
+            .card-title {
+                font-size: 1.1rem;
+            }
+
+            .stat-value {
+                font-size: 1.6rem;
+            }
+        }
+
+        /* 加載動畫 */
+        .loader {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #3498db;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* 彈窗樣式 */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+        }
+
+        .modal-content {
+            background-color: white;
+            margin: 5% auto;
+            padding: 2rem;
+            border-radius: 8px;
+            width: 80%;
+            max-width: 600px;
+            max-height: 90vh;
+            overflow-y: auto;
+            position: relative;
+        }
+
+        .close {
+            position: absolute;
+            right: 1rem;
+            top: 1rem;
+            font-size: 1.5rem;
+            cursor: pointer;
+            color: #aaa;
+        }
+
+        .close:hover {
+            color: #000;
+        }
+        .map-container {
+            margin-top: 1rem;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            overflow: hidden;
+            height: 300px;
+        }
+        
+        .map-toolbar {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 0.5rem;
+            flex-wrap: wrap;
+        }
+    </style>
+
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+          integrity="sha256-o9N1j7kPvxHboV3QbE6PUYZoXBcjc9V0w6pHia1u5r0=" crossorigin="" />
+</head>
+<body>
+    <!-- 頂部導航欄 -->
+    <nav class="navbar">
+        <div class="navbar-left">
+            <button class="btn btn-primary btn-small mobile-only" id="toggleSidebarBtn">☰ 選單</button>
+            <h1>🚕 智能計程車廣告管理系統</h1>
+        </div>
+        <div class="navbar-actions">
+            <span id="loginUserEmail">管理員</span>
+            <button class="btn btn-danger btn-small" onclick="logout()">登出</button>
+        </div>
+    </nav>
+
+    <!-- 主容器 -->
+    <div class="container">
+        <!-- 側邊欄 -->
+        <aside class="sidebar">
+            <button class="sidebar-item active" onclick="showPage('dashboard', event)">
+                <i>📊</i> 儀表板
+            </button>
+            <button class="sidebar-item" onclick="showPage('register', event)">
+                <i>➕</i> 設備註冊
+            </button>
+            <button class="sidebar-item" onclick="showPage('devices', event)">
+                <i>📱</i> 設備管理
+            </button>
+            <button class="sidebar-item" onclick="showPage('ads', event)">
+                <i>🎬</i> 廣告管理
+            </button>
+            <button class="sidebar-item" onclick="showPage('campaigns', event)">
+                <i>📍</i> 活動管理
+            </button>
+            <button class="sidebar-item" onclick="showPage('push', event)">
+                <i>📢</i> 推送控制
+            </button>
+            <button class="sidebar-item" onclick="showPage('download', event)">
+                <i>⬇️</i> 下載管理
+            </button>
+            <button class="sidebar-item" onclick="showPage('dualControl', event)">
+                <i>🚨</i> 雙螢幕中控
+            </button>
+            <button class="sidebar-item" onclick="showPage('logs', event)">
+                <i>📝</i> 系統日誌
+            </button>
+        </aside>
+        <div id="sidebarOverlay" class="sidebar-overlay"></div>
+
+        <!-- 主內容區 -->
+        <main class="main-content">
+            <!-- 儀表板頁面 -->
+            <div id="dashboardPage" class="page-content active">
+                <h2>系統儀表板</h2>
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-value" id="activeDevices">0</div>
+                        <div class="stat-label">活動設備</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="totalAds">0</div>
+                        <div class="stat-label">廣告總數</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="activeCampaigns">0</div>
+                        <div class="stat-label">活動數量</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="todayPushes">0</div>
+                        <div class="stat-label">今日推送</div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">系統狀態</div>
+                    <div id="systemStatus">
+                        <p>載入中...</p>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">目前播放狀態</div>
+                    <div id="playbackStatusContainer">
+                        <p>載入中...</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 設備註冊頁面 -->
+            <div id="registerPage" class="page-content">
+                <h2>設備註冊</h2>
+                <div class="card">
+                    <div class="card-title">註冊新設備</div>
+                    <form id="registerDeviceForm">
+                        <div class="form-group">
+                            <label class="form-label">設備 ID *</label>
+                            <input type="text" id="newDeviceId" class="form-control" 
+                                   placeholder="例如: taxi-AAB-1234-rooftop" required>
+                            <small style="color: #7f8c8d;">建議格式: taxi-{車牌}-{類型}</small>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">設備類型 *</label>
+                            <select id="newDeviceType" class="form-control">
+                                <option value="rooftop_display">車頂顯示器</option>
+                                <option value="in_car_screen">車內螢幕</option>
+                                <option value="mobile_app">手機 App</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">群組標籤</label>
+                            <input type="text" id="newDeviceGroups" class="form-control" 
+                                   placeholder="輸入標籤，用逗號分隔" value="general">
+                            <small style="color: #7f8c8d;">例如: general, premium, taipei</small>
+                        </div>
+                        <button type="submit" class="btn btn-success">註冊設備</button>
+                    </form>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">
+                        已註冊設備列表
+                        <button class="btn btn-primary btn-small" style="float: right;" onclick="loadRegisteredDevices()">
+                            🔄 刷新
+                        </button>
+                    </div>
+                    <div id="registeredDevicesList">
+                        <div class="loader"></div>
+                    </div>
+                </div>
+
+                <div class="card" style="background: #e8f5e9;">
+                    <div class="card-title">📱 連接說明</div>
+                    <ol style="line-height: 1.8;">
+                        <li>在上方表單中填寫設備資訊並點擊「註冊設備」</li>
+                        <li>記下分配的設備 ID（例如: taxi-AAB-1234-rooftop）</li>
+                        <li>在 App 端使用以下方式連接：
+                            <pre style="background: #fff; padding: 10px; margin-top: 10px; border-radius: 4px;">
+python tests/test_location_client.py <設備ID> 5
+
+範例:
+python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
+                        </li>
+                        <li>連接成功後，設備會自動出現在「設備管理」頁面</li>
+                    </ol>
+                </div>
+            </div>
+
+            <!-- 設備管理頁面 -->
+            <div id="devicesPage" class="page-content">
+                <h2>設備管理</h2>
+                <div class="card">
+                    <div class="card-title">
+                        線上設備
+                        <button class="btn btn-primary" style="float: right;" onclick="refreshDevices()">
+                            🔄 刷新
+                        </button>
+                    </div>
+                    <div id="devicesList">
+                        <div class="loader"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 廣告管理頁面 -->
+            <div id="adsPage" class="page-content">
+                <h2>廣告管理</h2>
+                <div class="card">
+                    <div class="card-title">
+                        廣告列表
+                        <button class="btn btn-success" style="float: right;" onclick="showCreateAdModal()">
+                            ➕ 新增廣告
+                        </button>
+                    </div>
+                    <div id="adsList">
+                        <div class="loader"></div>
+                    </div>
+                </div>
+            </div>
+
+
+            <!-- 活動管理頁面 -->
+            <div id="campaignsPage" class="page-content">
+                <h2>活動管理</h2>
+                <div class="card">
+                    <div class="card-title">
+                        活動列表
+                        <button class="btn btn-success" style="float: right;" onclick="showCreateCampaignModal()">
+                            ➕ 新增活動
+                        </button>
+                    </div>
+                    <div id="campaignsList">
+                        <div class="loader"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 推送控制頁面 -->
+            <div id="pushPage" class="page-content">
+                <h2>推送控制</h2>
+                <div class="card">
+                    <div class="card-title">即時推送廣告</div>
+                    <form id="pushForm">
+                        <div class="form-group">
+                            <label class="form-label">選擇目標設備</label>
+                            <div id="deviceSelector">
+                                <p>載入設備中...</p>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">選擇廣告</label>
+                            <select id="adSelector" class="form-control">
+                                <option value="">選擇廣告...</option>
+                            </select>
+                        </div>
+                        <button type="submit" class="btn btn-primary">立即推送</button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- 下載管理頁面 -->
+            <div id="downloadPage" class="page-content">
+                <h2>下載管理</h2>
+                <div class="card">
+                    <div class="card-title">推送影片下載</div>
+                    <form id="downloadForm">
+                        <div class="form-group">
+                            <label class="form-label">選擇目標設備</label>
+                            <div id="downloadDeviceSelector">
+                                <p>載入設備中...</p>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">選擇要下載的廣告</label>
+                            <select id="downloadAdSelector" class="form-control">
+                                <option value="">選擇廣告...</option>
+                            </select>
+                        </div>
+                        <button type="submit" class="btn btn-primary">推送下載</button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- 雙螢幕中控頁面 (嵌入式) -->
+            <div id="dualControlPage" class="page-content">
+                <h2>雙螢幕中控台</h2>
+                <div class="row" style="display: flex; gap: 1.5rem; flex-wrap: wrap;">
+                    <!-- 系統狀態 -->
+                    <div class="col-md-6" style="flex: 1 1 300px;">
+                        <div class="card h-100" style="margin-bottom: 0;">
+                            <div class="card-title">系統狀態</div>
+                            <div class="card-body text-center d-flex flex-column justify-content-center" id="embeddedStatusCard" style="padding: 2rem; border-radius: 8px; transition: all 0.3s;">
+                                <h2 id="embeddedStatusText" style="margin: 0 0 1.5rem 0;">載入中...</h2>
+                                <div>
+                                    <button id="embeddedTriggerBtn" class="btn btn-danger btn-lg" style="width: 100%; padding: 1rem; font-size: 1.2rem; margin-bottom: 1rem;" onclick="triggerAlarm()">
+                                        ⚠️ 觸發警報 (Trigger Alarm)
+                                    </button>
+                                    <button id="embeddedResetBtn" class="btn btn-success btn-lg" style="width: 100%; padding: 1rem; font-size: 1.2rem; display:none;" onclick="resetAlarm()">
+                                        ✅ 恢復正常 (Reset)
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- QR Code 統計 -->
+                    <div class="col-md-6" style="flex: 1 1 300px;">
+                        <div class="card h-100" style="margin-bottom: 0;">
+                            <div class="card-title">
+                                QR Code 掃描統計
+                                <button class="btn btn-danger btn-small" style="float: right; font-size: 0.7rem;" onclick="resetQrCount('all')">全歸零</button>
+                            </div>
+                            <div class="card-body" style="padding: 1rem;">
+                                <div id="qrStatsList">
+                                    <p style="text-align: center;">載入數據中...</p>
+                                </div>
+                                
+                                <p style="color: #7f8c8d; font-size: 0.8rem; text-align: center; margin-top: 1rem;">
+                                    * 數據即時更新
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 跑馬燈設置 -->
+                    <div class="col-12" style="flex: 1 1 100%; margin-top: 1.5rem;">
+                        <div class="card" style="margin-bottom: 0;">
+                            <div class="card-title">跑馬燈控制 (Screen A)</div>
+                            <div class="card-body">
+                                <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
+                                    <input type="text" id="embeddedMarqueeInput" class="form-control" placeholder="輸入跑馬燈文字...">
+                                    <button class="btn btn-primary" onclick="updateMarquee()">發送更新</button>
+                                </div>
+                                <div style="background-color: #e3f2fd; color: #2980b9; padding: 1rem; border-radius: 4px;">
+                                    當前內容: <span id="embeddedCurrentMarquee" style="font-weight: bold;">-</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 警報影片設置 -->
+                    <div class="col-12" style="flex: 1 1 100%; margin-top: 1.5rem;">
+                        <div class="card" style="margin-bottom: 0;">
+                            <div class="card-title">警報影片設定 (Screen B)</div>
+                            <div class="card-body">
+                                <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
+                                    <input type="text" id="embeddedVideoInput" class="form-control" placeholder="輸入影片檔名 (如 earthquake_alert.mp4)...">
+                                    <button class="btn btn-primary" onclick="updateVideo()">更新影片設定</button>
+                                </div>
+                                <div style="background-color: #fff3cd; color: #856404; padding: 1rem; border-radius: 4px;">
+                                    當前設定: <span id="embeddedCurrentVideo" style="font-weight: bold;">-</span> (請確保 App 端已下載此檔名之影片)
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 系統日誌頁面 -->
+            <div id="logsPage" class="page-content">
+                <h2>系統日誌</h2>
+                <div class="card">
+                    <div class="card-title">
+                        實時日誌
+                        <button class="btn btn-danger btn-small" style="float: right;" onclick="clearLogs()">
+                            清空日誌
+                        </button>
+                    </div>
+                    <div class="log-container" id="logContainer">
+                        <div class="log-entry">
+                            <span class="log-time">[系統啟動]</span> 管理系統已啟動
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- 創建廣告彈窗 -->
+    <div id="createAdModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal('createAdModal')">&times;</span>
+            <h3>創建新廣告</h3>
+            <form id="createAdForm">
+                <div class="form-group">
+                    <label class="form-label">廣告ID</label>
+                    <input type="text" id="newAdId" class="form-control" placeholder="自動生成">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">廣告名稱</label>
+                    <input type="text" id="newAdName" class="form-control" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">類型</label>
+                    <select id="newAdType" class="form-control">
+                        <option value="general">一般廣告</option>
+                        <option value="promotion">促銷廣告</option>
+                        <option value="event">活動廣告</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">優先級</label>
+                    <input type="number" id="newAdPriority" class="form-control" min="1" max="10" value="5">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">目標群組</label>
+                    <input type="text" id="newAdGroups" class="form-control" placeholder="輸入標籤，用逗號分隔" value="general">
+                    <small style="color: #7f8c8d;">若有多個群組請以逗號分隔，預設為 general</small>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">影片文件 *</label>
+                    <input type="file" id="newAdFile" class="form-control" accept="video/*" required>
+                </div>
+                <button type="submit" class="btn btn-success">創建廣告</button>
+                <div id="uploadProgress" style="display: none; margin-top: 1rem;">
+                    <div class="progress">
+                        <div class="progress-bar" id="progressBar" style="width: 0%"></div>
+                    </div>
+                    <p id="progressText">準備上傳...</p>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 創建活動彈窗 -->
+    <div id="createCampaignModal" class="modal">
+        <div class="modal-content" style="max-width: 800px; max-height: 90vh; overflow-y: auto;">
+            <span class="close" onclick="closeModal('createCampaignModal')">&times;</span>
+            <h3>創建新活動</h3>
+            <form id="createCampaignForm">
+                <div class="form-group">
+                    <label class="form-label">活動ID（選填）</label>
+                    <input type="text" id="newCampaignId" class="form-control" placeholder="自動生成">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">活動名稱 *</label>
+                    <input type="text" id="newCampaignName" class="form-control" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">優先級</label>
+                    <input type="number" id="newCampaignPriority" class="form-control" min="1" max="10" value="5">
+                    <small style="color: #7f8c8d;">數值越大優先級越高</small>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">目標群組</label>
+                    <input type="text" id="newCampaignGroups" class="form-control" placeholder="輸入標籤，用逗號分隔" value="general">
+                    <small style="color: #7f8c8d;">例如: general, premium, taipei</small>
+                </div>
+                
+                <hr style="margin: 1.5rem 0;">
+                
+                <h4 style="margin-bottom: 1rem;">📍 GPS位置設定</h4>
+                <div class="form-group">
+                    <label class="form-label">中心點經度 *</label>
+                    <input type="number" id="centerLongitude" class="form-control" step="0.000001" required placeholder="例如: 121.5645">
+                    <small style="color: #7f8c8d;">範圍: -180 到 180</small>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">中心點緯度 *</label>
+                    <input type="number" id="centerLatitude" class="form-control" step="0.000001" required placeholder="例如: 25.0330">
+                    <small style="color: #7f8c8d;">範圍: -90 到 90</small>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">範圍半徑（公尺）*</label>
+                    <input type="number" id="radiusMeters" class="form-control" min="10" max="10000" value="500" required>
+                    <small style="color: #7f8c8d;">設備進入此範圍內會觸發廣告播放</small>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">使用地圖選擇位置</label>
+                    <div id="campaignMap" class="map-container"></div>
+                    <div class="map-toolbar">
+                        <button type="button" class="btn btn-primary btn-small" onclick="locateCurrentPosition()">
+                            📍 使用目前定位
+                        </button>
+                        <button type="button" class="btn btn-primary btn-small" onclick="centerMapToInputs()">
+                            🎯 將地圖移至輸入座標
+                        </button>
+                        <small style="color: #7f8c8d; flex: 1 1 100%;">
+                            小提示：點擊地圖或拖曳標記即可更新經緯度欄位
+                        </small>
+                    </div>
+                </div>
+                
+                <hr style="margin: 1.5rem 0;">
+                
+                <h4 style="margin-bottom: 1rem;">🎬 廣告列表（循環播放）</h4>
+                <div class="form-group">
+                    <label class="form-label">選擇廣告 *</label>
+                    <div id="campaignAdSelector" style="max-height: 200px; overflow-y: auto; border: 1px solid #ddd; padding: 10px; border-radius: 4px;">
+                        <p>載入廣告中...</p>
+                    </div>
+                    <small style="color: #7f8c8d;">可選擇多個廣告，設備會循環播放這些廣告</small>
+                </div>
+                
+                <button type="submit" class="btn btn-success">創建活動</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- 第三方函式庫 -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+            integrity="sha256-SmSRN1ogbH0GkM1Jr1cOGn97d8iRgx0G2v+rj0i0X6Y=" crossorigin=""></script>
+
+    <!-- Socket.IO 客戶端庫 -->
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    
+    <script>
+
+        const LOGIN_PAGE = 'login.html';
+
+        if (localStorage.getItem('admin_logged_in') !== 'true') {
+            window.location.href = LOGIN_PAGE;
+        }
+
+        // Socket.IO 連接
+        let socket = null;
+        let sidebar = null;
+        let sidebarOverlay = null;
+        // API 基礎路徑
+        // 自動偵測目前網域與協定
+        const API_BASE = window.location.origin + '/api/v1/admin';
+        // 更穩定版本（Azure App Service 專用）
+        const SOCKETIO_URL = window.location.origin;
+
+        // 初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            sidebar = document.querySelector('.sidebar');
+            sidebarOverlay = document.getElementById('sidebarOverlay');
+            const toggleSidebarBtn = document.getElementById('toggleSidebarBtn');
+
+            if (toggleSidebarBtn) {
+                toggleSidebarBtn.addEventListener('click', toggleSidebar);
+            }
+
+            if (sidebarOverlay) {
+                sidebarOverlay.addEventListener('click', closeSidebar);
+            }
+
+            window.addEventListener('resize', handleResponsiveSidebar);
+            handleResponsiveSidebar();
+
+            // 請求瀏覽器通知權限
+            if ('Notification' in window && Notification.permission === 'default') {
+                Notification.requestPermission();
+            }
+
+            initWebSocket();
+            loadDashboard();
+            setupEventListeners();
+            setLoginUserInfo();
+        });
+
+        // socket = io(SOCKETIO_URL, {
+        //     transports: ['websocket'],  // 保留純 websocket
+        //     reconnection: true,
+        //     reconnectionDelay: 5000,
+        //     reconnectionAttempts: Infinity
+        // });
+
+
+        // 當前頁面
+        let currentPage = 'dashboard';
+        
+
+        
+        // 初始化 WebSocket (使用 Socket.IO)
+        function initWebSocket() {
+            try {
+                // 如果已經有連接，先斷開
+                if (socket) {
+                    socket.disconnect();
+                }
+                
+                // 建立 Socket.IO 連接
+                socket = io(SOCKETIO_URL, {
+                    transports: ['websocket'],
+                    reconnection: true,
+                    reconnectionDelay: 5000,
+                    reconnectionAttempts: Infinity
+                });
+                
+                socket.on('connect', function() {
+                    addLog('Socket.IO 連接已建立 (SID: ' + socket.id + ')', 'info');
+                });
+                
+                socket.on('disconnect', function() {
+                    addLog('Socket.IO 連接已斷開', 'warning');
+                });
+                
+                socket.on('connect_error', function(error) {
+                    addLog('Socket.IO 連接錯誤: ' + error.message, 'error');
+                });
+                
+                socket.on('connection_established', function(data) {
+                    addLog('服務器確認連接: ' + data.message, 'info');
+                });
+                
+                // 監聽設備連接/斷開事件
+                socket.on('device_status', function(data) {
+                    handleWebSocketMessage(data);
+                });
+                
+                // 監聽 QR Code 掃描事件
+                socket.on('qr_scan_event', function(data) {
+                    handleQRScanEvent(data);
+                });
+                
+            } catch (error) {
+                addLog('初始化 Socket.IO 失敗: ' + error.message, 'error');
+            }
+        }
+        
+        // 處理 WebSocket 消息
+        function handleWebSocketMessage(data) {
+            switch(data.type) {
+                case 'device_connected':
+                    addLog(`設備 ${data.device_id} 已連接`, 'info');
+                    if (currentPage === 'dashboard' || currentPage === 'devices') {
+                        loadDashboard();
+                    }
+                    break;
+                case 'device_disconnected':
+                    addLog(`設備 ${data.device_id} 已斷開`, 'warning');
+                    if (currentPage === 'dashboard' || currentPage === 'devices') {
+                        loadDashboard();
+                    }
+                    break;
+            }
+        }
+        
+        // 定義地點對照 (方便前端顯示名稱)
+        const QR_NAMES = {
+            "shibuya": "涉谷十字路",
+            "tokyo_tower": "東京鐵塔",
+            "tokyo_station": "東京車站一番街"
+        };
+
+        // 1. 初始化載入數據
+        async function loadQrStats() {
+            try {
+                const res = await fetch('/api/v1/admin/qr_stats');
+                const data = await res.json();
+                if (data.status === 'success') {
+                    renderQrStats(data.stats);
+                }
+            } catch (e) {
+                console.error("載入 QR 統計失敗", e);
+            }
+        }
+
+        // 2. 渲染統計列表 HTML
+        function renderQrStats(stats) {
+            const container = document.getElementById('qrStatsList');
+            if (!container) return;
+
+            let html = '<table style="width: 100%;">';
+            
+            // 遍歷所有地點
+            for (const [key, info] of Object.entries(stats)) {
+                // 如果後端傳來的格式是直接 {shibuya: {count: 10...}} 或 {shibuya: 10} 需適配，這裡以 api 回傳結構為準
+                const count = info.count !== undefined ? info.count : info;
+                const name = QR_NAMES[key] || info.name || key;
+                
+                html += `
+                    <tr style="border-bottom: 1px solid #eee;">
+                        <td style="padding: 10px 0; font-weight: 500;">${name}</td>
+                        <td style="padding: 10px 0; font-size: 1.5rem; color: #3498db; font-weight: bold; text-align: right; width: 80px;">
+                            <span id="qr-count-${key}">${count}</span>
+                        </td>
+                        <td style="padding: 10px 0; text-align: right; width: 60px;">
+                            <button class="btn btn-small" style="background: #f1f2f6; color: #666;" onclick="resetQrCount('${key}')">歸零</button>
+                        </td>
+                    </tr>
+                `;
+            }
+            html += '</table>';
+            container.innerHTML = html;
+        }
+
+        // 3. 處理 Socket 即時更新
+        // 在 initWebSocket() 或 socket 連接成功後的地方確認有這段:
+        // 注意：如果你之前有寫 socket.on('stats_update', ...)，可以保留或整合，
+        // 但新的後端是發送 'qr_stats_update'
+        if (socket) {
+            socket.on('qr_stats_update', function(data) {
+                // data.counts = { shibuya: 10, tokyo_tower: 5 ... }
+                if (data.reset) {
+                    // 如果是歸零事件，重新載入最準
+                    loadQrStats();
+                } else if (data.counts) {
+                    // 更新畫面上所有的數字
+                    for (const [key, count] of Object.entries(data.counts)) {
+                        const el = document.getElementById(`qr-count-${key}`);
+                        if (el) {
+                            el.innerText = count;
+                            // 加個閃爍特效提示更新
+                            el.style.color = '#e74c3c';
+                            setTimeout(() => el.style.color = '#3498db', 500);
+                        }
+                    }
+                }
+            });
+        }
+
+        // 4. 歸零功能
+        async function resetQrCount(key) {
+            const name = key === 'all' ? "所有數據" : (QR_NAMES[key] || key);
+            if (!confirm(`確定要歸零 [${name}] 的掃描次數嗎？`)) return;
+
+            try {
+                await fetch(`/api/v1/admin/reset_qr/${key}`, { method: 'POST' });
+                // 不用手動重整，socket 會通知
+            } catch (e) {
+                alert("歸零失敗");
+            }
+        }
+
+        // 記得在頁面載入時呼叫初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            // ... 原本的初始化 ...
+            loadQrStats(); // 新增這行
+        });
+
+        
+        // 顯示頁面
+        function showPage(pageName,event) {
+            // 隱藏所有頁面
+            document.querySelectorAll('.page-content').forEach(page => {
+                page.classList.remove('active');
+            });
+            
+            // 更新側邊欄
+            document.querySelectorAll('.sidebar-item').forEach(item => {
+                item.classList.remove('active');
+            });
+            
+            // 顯示選中頁面
+            document.getElementById(pageName + 'Page').classList.add('active');
+            if (event && event.currentTarget) {
+                event.currentTarget.classList.add('active');
+            } else if (event && event.target) {
+                event.target.classList.add('active');
+            }
+            
+            currentPage = pageName;
+
+            if (window.innerWidth <= 768) {
+                closeSidebar();
+            }
+            
+            // 載入頁面數據
+            switch(pageName) {
+                case 'dashboard':
+                    loadDashboard();
+                    break;
+                case 'register':
+                    loadRegisteredDevices();
+                    break;
+                case 'devices':
+                    loadDevices();
+                    break;
+                case 'ads':
+                    loadAds();
+                    break;
+                case 'campaigns':
+                    loadCampaigns();
+                    break;
+                case 'push':
+                    loadPushPage();
+                    break;
+                case 'download':
+                    loadDownloadPage();
+                    break;
+                case 'dualControl':
+                    loadDualControlPage();
+                    break;
+            }
+        }
+        
+        // 載入雙螢幕中控頁面
+        async function loadDualControlPage() {
+            try {
+                // 獲取初始狀態
+                const [statusRes, statsRes] = await Promise.all([
+                    fetch('/api/v2/control/status'),
+                    fetch('/api/v2/stats/qr')
+                ]);
+                
+                const statusData = await statusRes.json();
+                const statsData = await statsRes.json();
+
+                updateDualControlUI(statusData);
+                document.getElementById('embeddedQrCount').innerText = statsData.count;
+                
+                // 確保 Socket 監聽器已設置 (重用現有的 socket)
+                if(socket) {
+                    // 移除舊的監聽器避免重複
+                    socket.off('system_state_update');
+                    socket.off('stats_update');
+                    
+                    // 重新綁定
+                    socket.on('system_state_update', (data) => {
+                        addLog('收到系統狀態更新', 'info');
+                        updateDualControlUI(data);
+                    });
+
+                    socket.on('stats_update', (data) => {
+                        // 只在當前頁面是中控台時更新 UI，避免干擾
+                        if(currentPage === 'dualControl') {
+                            document.getElementById('embeddedQrCount').innerText = data.qr_scan_count;
+                        }
+                    });
+                }
+            } catch (error) {
+                addLog('載入中控台數據失敗: ' + error.message, 'error');
+            }
+        }
+
+        function updateDualControlUI(data) {
+            // 只在元素存在時更新
+            const statusCard = document.getElementById('embeddedStatusCard');
+            if(!statusCard) return;
+
+            const statusText = document.getElementById('embeddedStatusText');
+            const triggerBtn = document.getElementById('embeddedTriggerBtn');
+            const resetBtn = document.getElementById('embeddedResetBtn');
+            const currentMarquee = document.getElementById('embeddedCurrentMarquee');
+            const currentVideo = document.getElementById('embeddedCurrentVideo');
+
+            currentMarquee.innerText = data.marquee_text;
+            if(currentVideo) currentVideo.innerText = data.emergency_video || '未設定';
+
+            if (data.is_alarm_active) {
+                statusCard.style.backgroundColor = '#f8d7da';
+                statusCard.style.borderColor = '#f5c6cb';
+                statusText.innerText = '⚠️ 警報模式 (ALARM)';
+                statusText.style.color = '#721c24';
+                triggerBtn.style.display = 'none';
+                resetBtn.style.display = 'block';
+            } else {
+                statusCard.style.backgroundColor = '#d4edda';
+                statusCard.style.borderColor = '#c3e6cb';
+                statusText.innerText = '🟢 正常模式 (Normal)';
+                statusText.style.color = '#155724';
+                triggerBtn.style.display = 'block';
+                resetBtn.style.display = 'none';
+            }
+        }
+
+        async function triggerAlarm() {
+            if(!confirm("確定要觸發警報嗎？這將會中斷所有螢幕播放！")) return;
+            try {
+                await fetch('/api/v2/control/trigger', { method: 'POST' });
+                addLog('已觸發警報', 'warning');
+            } catch(e) {
+                addLog('觸發警報失敗', 'error');
+            }
+        }
+
+        async function resetAlarm() {
+            try {
+                await fetch('/api/v2/control/reset', { method: 'POST' });
+                addLog('已恢復正常模式', 'success');
+            } catch(e) {
+                addLog('重置警報失敗', 'error');
+            }
+        }
+
+        async function updateMarquee() {
+            const text = document.getElementById('embeddedMarqueeInput').value;
+            if (!text) return;
+            
+            try {
+                await fetch('/api/v2/config/marquee', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text })
+                });
+                document.getElementById('embeddedMarqueeInput').value = '';
+                addLog('跑馬燈已更新', 'info');
+            } catch(e) {
+                addLog('更新跑馬燈失敗', 'error');
+            }
+        }
+
+        async function updateVideo() {
+            const filename = document.getElementById('embeddedVideoInput').value;
+            if (!filename) return;
+            
+            try {
+                await fetch('/api/v2/config/video', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ filename })
+                });
+                document.getElementById('embeddedVideoInput').value = '';
+                addLog('警報影片已更新', 'info');
+            } catch(e) {
+                addLog('更新影片設定失敗', 'error');
+            }
+        }
+
+        // 註冊新設備
+        async function registerDevice() {
+            const deviceId = document.getElementById('newDeviceId').value.trim();
+            const deviceType = document.getElementById('newDeviceType').value;
+            const groupsInput = document.getElementById('newDeviceGroups').value;
+            
+            // 解析群組標籤
+            const groups = groupsInput.split(',').map(g => g.trim()).filter(g => g);
+            
+            if (!deviceId) {
+                alert('請輸入設備 ID');
+                return;
+            }
+            
+            try {
+                const response = await fetch(API_BASE + '/devices', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        device_id: deviceId,
+                        device_type: deviceType,
+                        groups: groups.length > 0 ? groups : ['general']
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    addLog(`設備註冊成功: ${deviceId}`, 'success');
+                    alert(`✅ 設備註冊成功！\n\n設備 ID: ${deviceId}\n\n請使用以下命令連接：\npython tests/test_location_client.py ${deviceId} 5`);
+                    
+                    // 重置表單
+                    document.getElementById('registerDeviceForm').reset();
+                    document.getElementById('newDeviceGroups').value = 'general';
+                    
+                    // 刷新設備列表
+                    loadRegisteredDevices();
+                } else {
+                    throw new Error(data.message || '註冊失敗');
+                }
+            } catch (error) {
+                addLog('設備註冊失敗: ' + error.message, 'error');
+                alert('設備註冊失敗: ' + error.message);
+            }
+        }
+        
+        // 載入已註冊設備列表
+        async function loadRegisteredDevices() {
+            try {
+                const response = await fetch(API_BASE + '/devices');
+                const data = await response.json();
+                
+                const devicesList = document.getElementById('registeredDevicesList');
+                
+                if (data.devices && data.devices.length > 0) {
+                    devicesList.innerHTML = `
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>設備 ID</th>
+                                    <th>設備類型</th>
+                                    <th>群組</th>
+                                    <th>狀態</th>
+                                    <th>註冊時間</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${data.devices.map(device => `
+                                    <tr>
+                                        <td><strong>${device.device_id}</strong></td>
+                                        <td>${getDeviceTypeLabel(device.device_type)}</td>
+                                        <td>${device.groups ? device.groups.join(', ') : '-'}</td>
+                                        <td>
+                                            <span class="device-status ${device.is_online ? 'status-online' : 'status-offline'}">
+                                                ${device.is_online ? '線上' : '離線'}
+                                            </span>
+                                        </td>
+                                        <td>${device.created_at ? new Date(device.created_at).toLocaleString('zh-TW') : '-'}</td>
+                                        <td>
+                                            <button class="btn btn-primary btn-small" onclick="copyDeviceId('${device.device_id}')">
+                                                複製 ID
+                                            </button>
+                                            <button class="btn btn-danger btn-small" onclick="deleteDevice('${device.device_id}')">
+                                                刪除
+                                            </button>
+                                        </td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    `;
+                } else {
+                    devicesList.innerHTML = '<p>目前沒有已註冊的設備</p>';
+                }
+            } catch (error) {
+                addLog('載入設備列表失敗: ' + error.message, 'error');
+                document.getElementById('registeredDevicesList').innerHTML = '<p>載入失敗</p>';
+            }
+        }
+        
+        // 複製設備 ID 到剪貼簿
+        async function copyDeviceId(deviceId) {
+            try {
+                await navigator.clipboard.writeText(deviceId);
+                alert('✅ 設備 ID 已複製到剪貼簿！\n\n' + deviceId);
+            } catch (err) {
+                // 降級方案
+                const textArea = document.createElement('textarea');
+                textArea.value = deviceId;
+                document.body.appendChild(textArea);
+                textArea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textArea);
+                alert('✅ 設備 ID 已複製到剪貼簿！\n\n' + deviceId);
+            }
+        }
+        
+        // 刪除設備
+        async function deleteDevice(deviceId) {
+            if (!confirm(`確定要刪除設備 ${deviceId} 嗎？`)) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(API_BASE + `/devices/${deviceId}`, {
+                    method: 'DELETE'
+                });
+                
+                const data = await response.json();
+                if (data.status === 'success') {
+                    addLog(`設備已刪除: ${deviceId}`, 'info');
+                    loadRegisteredDevices();
+                } else {
+                    throw new Error(data.message);
+                }
+            } catch (error) {
+                addLog('刪除設備失敗: ' + error.message, 'error');
+                alert('刪除失敗: ' + error.message);
+            }
+        }
+        
+        // 獲取設備類型標籤
+        function getDeviceTypeLabel(type) {
+            const labels = {
+                'rooftop_display': '車頂顯示器',
+                'in_car_screen': '車內螢幕',
+                'mobile_app': '手機 App'
+            };
+            return labels[type] || type;
+        }
+        
+        // 載入儀表板
+        async function loadDashboard() {
+            try {
+                // 獲取統計數據
+                const [connectionsRes, adsRes, campaignsRes, healthRes, playbackRes] = await Promise.all([
+                    fetch(API_BASE + '/connections'),
+                    fetch(API_BASE + '/advertisements?status=active'),
+                    fetch(API_BASE + '/campaigns?status=active'),
+                    fetch(window.location.origin + '/health'),
+                    fetch(API_BASE + '/devices/playback')
+                ]);
+                
+                const connections = await connectionsRes.json();
+                const ads = await adsRes.json();
+                const campaigns = await campaignsRes.json();
+                const health = await healthRes.json();
+                const playback = await playbackRes.json();
+                
+                // 更新統計
+                document.getElementById('activeDevices').textContent = connections.active_devices?.length || 0;
+                document.getElementById('totalAds').textContent = ads.total || 0;
+                document.getElementById('activeCampaigns').textContent = campaigns.total || 0;
+                document.getElementById('todayPushes').textContent = connections.stats?.messages_sent || 0;
+                
+                // 更新系統狀態
+                if(document.getElementById('systemStatus')) {
+                    document.getElementById('systemStatus').innerHTML = `
+                        <p>服務狀態: <span style="color: #27ae60;">運行中</span></p>
+                        <p>數據庫狀態: ${health.database}</p>
+                        <p>活動連接數: ${health.active_connections}</p>
+                        <p>服務器時間: ${new Date().toLocaleString('zh-TW')}</p>
+                    `;
+                }
+
+                // 更新播放狀態
+                const playbackContainer = document.getElementById('playbackStatusContainer');
+                if (playbackContainer) {
+                    if (playback.status === 'success' && Array.isArray(playback.playback_states) && playback.playback_states.length > 0) {
+                    playbackContainer.innerHTML = `
+                        <div style="overflow-x: auto;">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>設備</th>
+                                        <th>線上狀態</th>
+                                        <th>播放模式</th>
+                                        <th>播放內容</th>
+                                        <th>更新時間</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${playback.playback_states.map(state => `
+                                        <tr>
+                                            <td>${state.device_id}</td>
+                                            <td>
+                                                <span class="device-status ${state.is_online ? 'status-online' : 'status-offline'}">
+                                                    ${state.is_online ? '線上' : '離線'}
+                                                </span>
+                                            </td>
+                                            <td>${renderPlaybackMode(state.mode)}</td>
+                                            <td>${renderPlaybackMedia(state)}</td>
+                                            <td>${formatTimestamp(state.updated_at)}</td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    `;
+                } else {
+                    playbackContainer.innerHTML = '<p>尚無播放記錄</p>';
+                }
+                }
+            } catch (error) {
+                addLog('載入儀表板失敗: ' + error.message, 'error');
+            }
+        }
+        
+        // 載入設備列表
+        async function loadDevices() {
+            try {
+                const [connectionsRes, devicesRes] = await Promise.all([
+                    fetch(API_BASE + '/connections'),
+                    fetch(API_BASE + '/devices')
+                ]);
+                
+                const connectionsData = await connectionsRes.json();
+                const devicesData = await devicesRes.json();
+                
+                const deviceMeta = {};
+                if (devicesData.devices && Array.isArray(devicesData.devices)) {
+                    devicesData.devices.forEach(device => {
+                        const deviceId = device.device_id || device._id;
+                        if (deviceId) {
+                            deviceMeta[deviceId] = device;
+                        }
+                    });
+                }
+                
+                const devicesList = document.getElementById('devicesList');
+                
+                if (connectionsData.active_devices && connectionsData.active_devices.length > 0) {
+                    devicesList.innerHTML = connectionsData.active_devices.map(device => {
+                        const detail = deviceMeta[device.device_id] || {};
+                        const locationHtml = renderDeviceLocation(detail);
+                        const playbackHtml = renderDevicePlayback(detail);
+                        return `
+                        <div class="device-card">
+                            <div class="device-info">
+                                <h4>${device.device_id}</h4>
+                                <p>連接時間: ${new Date(device.connected_at).toLocaleString('zh-TW')}</p>
+                                <p>最後活動: ${new Date(device.last_activity).toLocaleString('zh-TW')}</p>
+                                ${locationHtml}
+                                ${playbackHtml}
+                            </div>
+                            <div>
+                                <span class="device-status status-online">線上</span>
+                                <button class="btn btn-primary btn-small" onclick="pushToDevice('${device.device_id}')">
+                                    推送
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                    }).join('');
+                } else {
+                    devicesList.innerHTML = '<p>目前沒有線上設備</p>';
+                }
+            } catch (error) {
+                addLog('載入設備列表失敗: ' + error.message, 'error');
+            }
+        }
+        
+        // 載入廣告列表
+        async function loadAds() {
+            try {
+                const response = await fetch(API_BASE + '/advertisements?status=active');
+                const data = await response.json();
+                
+                const adsList = document.getElementById('adsList');
+                
+                if (data.advertisements && data.advertisements.length > 0) {
+                    adsList.innerHTML = `
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>名稱</th>
+                                    <th>文件名</th>
+                                    <th>大小</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${data.advertisements.map(ad => `
+                                    <tr>
+                                        <td>${ad.advertisement_id}</td>
+                                        <td>${ad.name}</td>
+                                        <td>${ad.video_filename || '-'}</td>
+                                        <td>${ad.file_size ? formatFileSize(ad.file_size) : '-'}</td>
+                                        <td>
+                                            <button class="btn btn-danger btn-small" onclick="deleteAd('${ad.advertisement_id}')">
+                                                刪除
+                                            </button>
+                                        </td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    `;
+                } else {
+                    adsList.innerHTML = '<p>目前沒有廣告</p>';
+                }
+            } catch (error) {
+                addLog('載入廣告列表失敗: ' + error.message, 'error');
+            }
+        }
+        
+        // 載入活動列表
+        async function loadCampaigns() {
+            try {
+                const response = await fetch(API_BASE + '/campaigns?status=active');
+                const data = await response.json();
+                
+                const campaignsList = document.getElementById('campaignsList');
+                
+                if (data.campaigns && data.campaigns.length > 0) {
+                    campaignsList.innerHTML = `
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>名稱</th>
+                                    <th>廣告列表</th>
+                                    <th>中心位置</th>
+                                    <th>範圍</th>
+                                    <th>優先級</th>
+                                    <th>目標群組</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${data.campaigns.map(campaign => {
+                                    // 安全地獲取中心位置
+                                    let centerText = '-';
+                                    try {
+                                        if (campaign.center_location && campaign.center_location.coordinates) {
+                                            const coords = campaign.center_location.coordinates;
+                                            if (Array.isArray(coords) && coords.length >= 2 && 
+                                                typeof coords[0] === 'number' && typeof coords[1] === 'number') {
+                                                centerText = `(${coords[0].toFixed(6)}, ${coords[1].toFixed(6)})`;
+                                            }
+                                        } else if (campaign.geo_fence && campaign.geo_fence.coordinates) {
+                                            // 嘗試從地理圍欄的第一個點獲取中心位置
+                                            const firstPoint = campaign.geo_fence.coordinates[0];
+                                            if (Array.isArray(firstPoint) && firstPoint.length > 0) {
+                                                const point = Array.isArray(firstPoint[0]) ? firstPoint[0] : firstPoint;
+                                                if (Array.isArray(point) && point.length >= 2 && 
+                                                    typeof point[0] === 'number' && typeof point[1] === 'number') {
+                                                    centerText = `(${point[0].toFixed(6)}, ${point[1].toFixed(6)})`;
+                                                }
+                                            }
+                                        }
+                                    } catch (e) {
+                                        centerText = '-';
+                                    }
+                                    
+                                    const radius = campaign.radius_meters ? `${campaign.radius_meters} 公尺` : '-';
+                                    const ads = campaign.advertisement_ids || (campaign.advertisement_id ? [campaign.advertisement_id] : []);
+                                    const adsText = ads.length > 0 ? `${ads.length} 個廣告` : '-';
+                                    
+                                    return `
+                                        <tr>
+                                            <td>${campaign.campaign_id}</td>
+                                            <td><strong>${campaign.name}</strong></td>
+                                            <td>${adsText}</td>
+                                            <td>${centerText}</td>
+                                            <td>${radius}</td>
+                                            <td>${campaign.priority || '-'}</td>
+                                            <td>${campaign.target_groups ? campaign.target_groups.join(', ') : '-'}</td>
+                                            <td>
+                                                <button class="btn btn-primary btn-small" onclick="viewCampaignDetail('${campaign.campaign_id}')">
+                                                    查看
+                                                </button>
+                                                <button class="btn btn-danger btn-small" style="margin-left: 0.5rem;" onclick="deleteCampaign('${campaign.campaign_id}')">
+                                                    刪除
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    `;
+                                }).join('')}
+                            </tbody>
+                        </table>
+                    `;
+                } else {
+                    campaignsList.innerHTML = '<p>目前沒有活動</p>';
+                }
+            } catch (error) {
+                addLog('載入活動列表失敗: ' + error.message, 'error');
+            }
+        }
+        
+        // 載入推送頁面
+        async function loadPushPage() {
+            try {
+                // 載入設備列表
+                const devicesRes = await fetch(API_BASE + '/connections');
+                const devicesData = await devicesRes.json();
+                
+                const deviceSelector = document.getElementById('deviceSelector');
+                if (devicesData.active_devices && devicesData.active_devices.length > 0) {
+                    deviceSelector.innerHTML = devicesData.active_devices.map(device => `
+                        <label>
+                            <input type="checkbox" name="devices" value="${device.device_id}">
+                            ${device.device_id}
+                        </label><br>
+                    `).join('');
+                } else {
+                    deviceSelector.innerHTML = '<p>沒有線上設備</p>';
+                }
+                
+                // 載入廣告列表
+                const adsRes = await fetch(API_BASE + '/advertisements?status=active');
+                const adsData = await adsRes.json();
+                
+                const adSelector = document.getElementById('adSelector');
+                adSelector.innerHTML = '<option value="">選擇廣告...</option>' +
+                    adsData.advertisements.map(ad => 
+                        `<option value="${ad.advertisement_id}">${ad.name} (${ad.video_filename})</option>`
+                    ).join('');
+            } catch (error) {
+                addLog('載入推送頁面失敗: ' + error.message, 'error');
+            }
+        }
+        
+        // 載入下載頁面
+        async function loadDownloadPage() {
+            try {
+                // 載入設備列表
+                const devicesRes = await fetch(API_BASE + '/connections');
+                const devicesData = await devicesRes.json();
+                
+                const deviceSelector = document.getElementById('downloadDeviceSelector');
+                if (devicesData.active_devices && devicesData.active_devices.length > 0) {
+                    deviceSelector.innerHTML = devicesData.active_devices.map(device => `
+                        <label>
+                            <input type="checkbox" name="downloadDevices" value="${device.device_id}">
+                            ${device.device_id}
+                        </label><br>
+                    `).join('');
+                } else {
+                    deviceSelector.innerHTML = '<p>沒有線上設備</p>';
+                }
+                
+                // 載入有影片的廣告列表
+                const adsRes = await fetch(API_BASE + '/advertisements/available?with_files=true');
+                const adsData = await adsRes.json();
+                
+                const adSelector = document.getElementById('downloadAdSelector');
+                adSelector.innerHTML = '<option value="">選擇廣告...</option>' +
+                    adsData.advertisements.map(ad => 
+                        `<option value="${ad.advertisement_id}">${ad.name} (${formatFileSize(ad.file_size)})</option>`
+                    ).join('');
+            } catch (error) {
+                addLog('載入下載頁面失敗: ' + error.message, 'error');
+            }
+        }
+        
+        // 設置事件監聽器
+        function setupEventListeners() {
+            // 設備註冊表單
+            document.getElementById('registerDeviceForm').addEventListener('submit', async function(e) {
+                e.preventDefault();
+                await registerDevice();
+            });
+            
+            // 推送表單
+            document.getElementById('pushForm').addEventListener('submit', async function(e) {
+                e.preventDefault();
+                await pushAdvertisement();
+            });
+            
+            // 下載表單
+            document.getElementById('downloadForm').addEventListener('submit', async function(e) {
+                e.preventDefault();
+                await pushDownload();
+            });
+            
+            // 創建廣告表單
+            document.getElementById('createAdForm').addEventListener('submit', async function(e) {
+                e.preventDefault();
+                await createAdvertisement();
+            });
+            
+            // 創建活動表單
+            document.getElementById('createCampaignForm').addEventListener('submit', async function(e) {
+                e.preventDefault();
+                await createCampaign();
+            });
+
+            // 綁定經緯度輸入的同步事件
+            document.getElementById('centerLongitude').addEventListener('change', () => {
+                updateMapFromInputs();
+            });
+            document.getElementById('centerLatitude').addEventListener('change', () => {
+                updateMapFromInputs();
+            });
+        }
+        
+        // 顯示創建活動彈窗
+        async function showCreateCampaignModal() {
+            // 載入廣告列表
+            try {
+                const response = await fetch(API_BASE + '/advertisements?status=active');
+                const data = await response.json();
+                
+                const adSelector = document.getElementById('campaignAdSelector');
+                if (data.advertisements && data.advertisements.length > 0) {
+                    adSelector.innerHTML = data.advertisements.map(ad => `
+                        <label style="display: block; padding: 5px;">
+                            <input type="checkbox" name="campaignAds" value="${ad.advertisement_id}" style="margin-right: 8px;">
+                            ${ad.name} (${ad.video_filename || '無影片'})
+                        </label>
+                    `).join('');
+                } else {
+                    adSelector.innerHTML = '<p>目前沒有可用的廣告，請先上傳廣告</p>';
+                }
+            } catch (error) {
+                addLog('載入廣告列表失敗: ' + error.message, 'error');
+                document.getElementById('campaignAdSelector').innerHTML = '<p>載入失敗</p>';
+            }
+            
+            document.getElementById('createCampaignModal').style.display = 'block';
+            setTimeout(() => {
+                initCampaignMap();
+            }, 50);
+        }
+        
+        function initCampaignMap() {
+            const defaultLng = parseFloat(document.getElementById('centerLongitude').value) || 121.5645;
+            const defaultLat = parseFloat(document.getElementById('centerLatitude').value) || 25.0330;
+            const initialCoords = [defaultLat, defaultLng];
+
+            if (!campaignMap) {
+                campaignMap = L.map('campaignMap').setView(initialCoords, 13);
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    maxZoom: 19,
+                    attribution: '&copy; OpenStreetMap 貢獻者'
+                }).addTo(campaignMap);
+
+                campaignMapMarker = L.marker(initialCoords, { draggable: true }).addTo(campaignMap);
+
+                campaignMap.on('click', function (event) {
+                    updateMarkerAndInputs(event.latlng);
+                });
+
+                campaignMapMarker.on('dragend', function (event) {
+                    const latlng = event.target.getLatLng();
+                    updateInputsFromLatLng(latlng);
+                });
+            } else {
+                campaignMap.setView(initialCoords, campaignMap.getZoom());
+                campaignMapMarker.setLatLng(initialCoords);
+            }
+
+            setTimeout(() => {
+                campaignMap.invalidateSize();
+            }, 100);
+        }
+
+        function updateMapFromInputs() {
+            if (!campaignMap) return;
+            const lng = parseFloat(document.getElementById('centerLongitude').value);
+            const lat = parseFloat(document.getElementById('centerLatitude').value);
+            if (isNaN(lng) || isNaN(lat)) return;
+            const coords = { lat, lng };
+            campaignMap.setView(coords, campaignMap.getZoom());
+            campaignMapMarker.setLatLng(coords);
+        }
+
+        function updateMarkerAndInputs(latlng) {
+            campaignMapMarker.setLatLng(latlng);
+            updateInputsFromLatLng(latlng);
+        }
+
+        function updateInputsFromLatLng(latlng) {
+            document.getElementById('centerLongitude').value = latlng.lng.toFixed(6);
+            document.getElementById('centerLatitude').value = latlng.lat.toFixed(6);
+        }
+
+        function locateCurrentPosition() {
+            if (!navigator.geolocation) {
+                alert('瀏覽器不支援定位功能');
+                return;
+            }
+
+            navigator.geolocation.getCurrentPosition(position => {
+                const latlng = {
+                    lat: position.coords.latitude,
+                    lng: position.coords.longitude
+                };
+                if (!campaignMap) initCampaignMap();
+                campaignMap.setView(latlng, 15);
+                updateMarkerAndInputs(latlng);
+            }, error => {
+                alert('取得定位失敗: ' + error.message);
+            });
+        }
+
+        function centerMapToInputs() {
+            updateMapFromInputs();
+        }
+
+        function setLoginUserInfo() {
+            const email = localStorage.getItem('admin_login_email') || '管理員';
+            const emailSpan = document.getElementById('loginUserEmail');
+            if (emailSpan) {
+                emailSpan.textContent = email;
+            }
+        }
+
+        function logout() {
+            localStorage.removeItem('admin_logged_in');
+            localStorage.removeItem('admin_login_email');
+            window.location.href = LOGIN_PAGE;
+        }
+
+        // 創建活動
+        async function createCampaign() {
+            const campaignId = document.getElementById('newCampaignId').value.trim();
+            const campaignName = document.getElementById('newCampaignName').value.trim();
+            const priority = parseInt(document.getElementById('newCampaignPriority').value) || 5;
+            const groupsInput = document.getElementById('newCampaignGroups').value.trim();
+            const centerLongitude = parseFloat(document.getElementById('centerLongitude').value);
+            const centerLatitude = parseFloat(document.getElementById('centerLatitude').value);
+            const radiusMeters = parseInt(document.getElementById('radiusMeters').value);
+            
+            // 獲取選中的廣告
+            const selectedAds = Array.from(document.querySelectorAll('input[name="campaignAds"]:checked'))
+                .map(cb => cb.value);
+            
+            // 驗證
+            if (!campaignName) {
+                alert('請輸入活動名稱');
+                return;
+            }
+            
+            if (isNaN(centerLongitude) || isNaN(centerLatitude)) {
+                alert('請輸入有效的GPS座標');
+                return;
+            }
+            
+            if (isNaN(radiusMeters) || radiusMeters < 10) {
+                alert('請輸入有效的範圍半徑（至少10公尺）');
+                return;
+            }
+            
+            if (selectedAds.length === 0) {
+                alert('請至少選擇一個廣告');
+                return;
+            }
+            
+            // 解析群組標籤
+            const groups = groupsInput.split(',').map(g => g.trim()).filter(g => g);
+            
+            try {
+                const response = await fetch(API_BASE + '/campaigns', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        campaign_id: campaignId || undefined,
+                        name: campaignName,
+                        advertisement_ids: selectedAds,
+                        priority: priority,
+                        target_groups: groups.length > 0 ? groups : ['general'],
+                        center_location: {
+                            longitude: centerLongitude,
+                            latitude: centerLatitude
+                        },
+                        radius_meters: radiusMeters
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    addLog(`活動創建成功: ${data.campaign_id}`, 'success');
+                    alert('✅ 活動創建成功！\n\n活動ID: ' + data.campaign_id + '\n\n當設備進入此範圍時，會自動下載並循環播放選中的廣告。');
+                    closeModal('createCampaignModal');
+                    
+                    // 重置表單
+                    document.getElementById('createCampaignForm').reset();
+                    document.getElementById('newCampaignGroups').value = 'general';
+                    document.getElementById('newCampaignPriority').value = '5';
+                    document.getElementById('radiusMeters').value = '500';
+                    
+                    // 刷新活動列表
+                    loadCampaigns();
+                } else {
+                    throw new Error(data.message || '創建失敗');
+                }
+            } catch (error) {
+                addLog('創建活動失敗: ' + error.message, 'error');
+                alert('創建活動失敗: ' + error.message);
+            }
+        }
+        
+        // 查看活動詳情
+        async function viewCampaignDetail(campaignId) {
+            try {
+                const response = await fetch(API_BASE + `/campaigns/${campaignId}`);
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    const campaign = data.campaign;
+                    const ads = campaign.advertisements || [];
+                    
+                    // 安全地獲取中心位置
+                    let centerText = '-';
+                    try {
+                        if (campaign.center_location && campaign.center_location.coordinates) {
+                            const coords = campaign.center_location.coordinates;
+                            if (Array.isArray(coords) && coords.length >= 2 && 
+                                typeof coords[0] === 'number' && typeof coords[1] === 'number') {
+                                centerText = `(${coords[0].toFixed(6)}, ${coords[1].toFixed(6)})`;
+                            }
+                        } else if (campaign.geo_fence && campaign.geo_fence.coordinates) {
+                            const firstPoint = campaign.geo_fence.coordinates[0];
+                            if (Array.isArray(firstPoint) && firstPoint.length > 0) {
+                                const point = Array.isArray(firstPoint[0]) ? firstPoint[0] : firstPoint;
+                                if (Array.isArray(point) && point.length >= 2 && 
+                                    typeof point[0] === 'number' && typeof point[1] === 'number') {
+                                    centerText = `(${point[0].toFixed(6)}, ${point[1].toFixed(6)})`;
+                                }
+                            }
+                        }
+                    } catch (e) {
+                        centerText = '-';
+                    }
+                    
+                    let message = `活動詳情\n\n`;
+                    message += `ID: ${campaign.campaign_id}\n`;
+                    message += `名稱: ${campaign.name}\n`;
+                    message += `優先級: ${campaign.priority || '-'}\n`;
+                    message += `目標群組: ${campaign.target_groups ? campaign.target_groups.join(', ') : '-'}\n`;
+                    message += `中心位置: ${centerText}\n`;
+                    message += `範圍: ${campaign.radius_meters ? campaign.radius_meters + ' 公尺' : '-'}\n\n`;
+                    message += `廣告列表 (${ads.length} 個):\n`;
+                    if (ads.length > 0) {
+                        ads.forEach((ad, index) => {
+                            message += `${index + 1}. ${ad.name || '未命名'} (${ad.video_filename || '無影片'})\n`;
+                        });
+                    } else {
+                        message += `無廣告\n`;
+                    }
+                    
+                    alert(message);
+                } else {
+                    throw new Error(data.message);
+                }
+            } catch (error) {
+                addLog('獲取活動詳情失敗: ' + error.message, 'error');
+                alert('獲取活動詳情失敗: ' + error.message);
+            }
+        }
+        
+        // 刪除活動
+        async function deleteCampaign(campaignId) {
+            if (!confirm(`確定要刪除活動 ${campaignId} 嗎？`)) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(API_BASE + `/campaigns/${campaignId}`, {
+                    method: 'DELETE'
+                });
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    const affected = Array.isArray(data.affected_devices) ? data.affected_devices : [];
+                    const affectedMsg = affected.length > 0 ? `，已通知 ${affected.length} 台設備（${affected.join(', ')}）` : '';
+                    addLog(`活動已刪除: ${campaignId}${affectedMsg}`, 'info');
+                    alert(`✅ 活動已刪除！\n\n活動ID: ${campaignId}\n受影響設備：${affected.length} 台`);
+                    loadCampaigns();
+                } else {
+                    throw new Error(data.message || '刪除失敗');
+                }
+            } catch (error) {
+                addLog('刪除活動失敗: ' + error.message, 'error');
+                alert('刪除活動失敗: ' + error.message);
+            }
+        }
+        
+        // 推送廣告
+        async function pushAdvertisement() {
+            const selectedDevices = Array.from(document.querySelectorAll('input[name="devices"]:checked'))
+                .map(cb => cb.value);
+            const adId = document.getElementById('adSelector').value;
+            
+            if (selectedDevices.length === 0 || !adId) {
+                alert('請選擇設備和廣告');
+                return;
+            }
+            
+            try {
+                const response = await fetch(API_BASE + '/override', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        target_device_ids: selectedDevices,
+                        advertisement_id: adId
+                    })
+                });
+                
+                const data = await response.json();
+                if (data.status === 'success') {
+                    addLog(`推送成功: ${data.results.sent.length} 個設備`, 'success');
+                    alert('推送成功！');
+                } else {
+                    throw new Error(data.message);
+                }
+            } catch (error) {
+                addLog('推送失敗: ' + error.message, 'error');
+                alert('推送失敗: ' + error.message);
+            }
+        }
+        
+        // 推送下載
+        async function pushDownload() {
+            const selectedDevices = Array.from(document.querySelectorAll('input[name="downloadDevices"]:checked'))
+                .map(cb => cb.value);
+            const adId = document.getElementById('downloadAdSelector').value;
+            
+            if (selectedDevices.length === 0 || !adId) {
+                alert('請選擇設備和廣告');
+                return;
+            }
+            
+            try {
+                const response = await fetch(API_BASE + '/push/download', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        target_device_ids: selectedDevices,
+                        advertisement_id: adId,
+                        priority: 'normal',
+                        download_mode: 'chunked'
+                    })
+                });
+                
+                const data = await response.json();
+                if (data.status === 'success') {
+                    addLog(`下載推送成功: ${data.results.sent.length} 個設備`, 'success');
+                    alert('下載推送成功！');
+                } else {
+                    throw new Error(data.message);
+                }
+            } catch (error) {
+                addLog('下載推送失敗: ' + error.message, 'error');
+                alert('下載推送失敗: ' + error.message);
+            }
+        }
+        
+        // 創建廣告（含影片上傳）
+        async function createAdvertisement() {
+            const adIdInput = document.getElementById('newAdId').value.trim();
+            const adName = document.getElementById('newAdName').value.trim();
+            const adType = document.getElementById('newAdType').value;
+            const adPriority = parseInt(document.getElementById('newAdPriority').value, 10) || 5;
+            const groupsInput = document.getElementById('newAdGroups').value;
+            const targetGroups = groupsInput
+                .split(',')
+                .map(g => g.trim())
+                .filter(g => g);
+            const fileInput = document.getElementById('newAdFile');
+            const file = fileInput.files[0];
+            const progressContainer = document.getElementById('uploadProgress');
+            
+            if (!adName) {
+                alert('請輸入廣告名稱');
+                return;
+            }
+            
+            if (!file) {
+                alert('請選擇要上傳的影片檔案');
+                return;
+            }
+            
+            const defaultChunkSize = 10 * 1024 * 1024; // 10MB
+            const totalChunks = Math.max(1, Math.ceil(file.size / defaultChunkSize));
+            
+            if (progressContainer) {
+                progressContainer.style.display = 'block';
+            }
+            updateProgress(0, '準備上傳...');
+            
+            try {
+                // Step 1. 初始化分片上傳
+                const initPayload = {
+                    filename: file.name,
+                    total_size: file.size,
+                    total_chunks: totalChunks,
+                    name: adName
+                };
+                if (adIdInput) {
+                    initPayload.advertisement_id = adIdInput;
+                }
+                
+                const initRes = await fetch(API_BASE + '/videos/chunked/init', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(initPayload)
+                });
+                const initData = await initRes.json();
+                if (initData.status !== 'success') {
+                    throw new Error(initData.message || '初始化上傳失敗');
+                }
+                
+                const uploadId = initData.upload_id;
+                const serverChunkSize = initData.chunk_size || defaultChunkSize;
+                const effectiveChunkSize = serverChunkSize > 0 ? serverChunkSize : defaultChunkSize;
+                const effectiveTotalChunks = Math.max(1, Math.ceil(file.size / effectiveChunkSize));
+                
+                // Step 2. 上傳所有分片
+                for (let i = 0; i < effectiveTotalChunks; i++) {
+                    const start = i * effectiveChunkSize;
+                    const end = Math.min(start + effectiveChunkSize, file.size);
+                    const chunk = file.slice(start, end);
+                    
+                    const formData = new FormData();
+                    formData.append('upload_id', uploadId);
+                    formData.append('chunk_number', i.toString());
+                    formData.append('chunk', chunk);
+                    
+                    const chunkRes = await fetch(API_BASE + '/videos/chunked/upload', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    const chunkData = await chunkRes.json();
+                    if (chunkData.status !== 'success') {
+                        throw new Error(chunkData.message || `第 ${i + 1} 個分片上傳失敗`);
+                    }
+                    
+                    const progress = Math.round(((i + 1) / effectiveTotalChunks) * 100);
+                    updateProgress(progress, `上傳中... ${i + 1}/${effectiveTotalChunks}`);
+                }
+                
+                // Step 3. 通知伺服器合併分片
+                const completeRes = await fetch(API_BASE + '/videos/chunked/complete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ upload_id: uploadId })
+                });
+                const completeData = await completeRes.json();
+                if (completeData.status !== 'success') {
+                    throw new Error(completeData.message || '合併影片失敗');
+                }
+                
+                const createdAdId = completeData.video_info.advertisement_id;
+                
+                // Step 4. 更新廣告屬性（類型、優先級、群組等）
+                const updateRes = await fetch(API_BASE + `/advertisements/${createdAdId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        name: adName,
+                        type: adType,
+                        priority: adPriority,
+                        target_groups: targetGroups.length > 0 ? targetGroups : ['general'],
+                        status: 'active'
+                    })
+                });
+                const updateData = await updateRes.json();
+                if (updateRes.status >= 400 || updateData.status !== 'success') {
+                    throw new Error(updateData.message || '設定廣告屬性失敗');
+                }
+                
+                addLog(`廣告創建成功: ${createdAdId}`, 'success');
+                alert('廣告與影片已成功建立！');
+                
+                document.getElementById('createAdForm').reset();
+                document.getElementById('newAdGroups').value = 'general';
+                if (progressContainer) {
+                    progressContainer.style.display = 'none';
+                }
+                updateProgress(0, '準備上傳...');
+                
+                closeModal('createAdModal');
+                loadAds();
+                loadDownloadPage();
+            } catch (error) {
+                addLog('創建廣告失敗: ' + error.message, 'error');
+                alert('創建廣告失敗: ' + error.message);
+                if (progressContainer) {
+                    progressContainer.style.display = 'none';
+                }
+                updateProgress(0, '準備上傳...');
+            }
+        }
+        
+        // 刪除廣告
+        async function deleteAd(adId) {
+            if (!confirm(`確定要刪除廣告 ${adId} 嗎？`)) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(API_BASE + `/advertisements/${adId}`, {
+                    method: 'DELETE'
+                });
+                
+                const data = await response.json();
+                if (data.status === 'success') {
+                    addLog(`廣告已刪除: ${adId}`, 'info');
+                    loadAds();
+                } else {
+                    throw new Error(data.message);
+                }
+            } catch (error) {
+                addLog('刪除廣告失敗: ' + error.message, 'error');
+                alert('刪除失敗: ' + error.message);
+            }
+        }
+        
+        // 刷新設備列表
+        function refreshDevices() {
+            loadDevices();
+            addLog('設備列表已刷新', 'info');
+        }
+        
+        // 推送到單個設備
+        async function pushToDevice(deviceId) {
+            const adId = prompt('請輸入要推送的廣告ID:');
+            if (!adId) return;
+            
+            try {
+                const response = await fetch(API_BASE + '/override', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        target_device_ids: [deviceId],
+                        advertisement_id: adId
+                    })
+                });
+                
+                const data = await response.json();
+                if (data.status === 'success') {
+                    addLog(`推送成功到設備: ${deviceId}`, 'success');
+                    alert('推送成功！');
+                } else {
+                    throw new Error(data.message);
+                }
+            } catch (error) {
+                addLog('推送失敗: ' + error.message, 'error');
+                alert('推送失敗: ' + error.message);
+            }
+        }
+        
+        // 更新進度條
+        function updateProgress(percent, text) {
+            const bar = document.getElementById('progressBar');
+            const label = document.getElementById('progressText');
+            if (bar) {
+                bar.style.width = percent + '%';
+            }
+            if (label) {
+                label.textContent = text;
+            }
+        }
+        
+        // 添加日誌
+        function addLog(message, type = 'info') {
+            const logContainer = document.getElementById('logContainer');
+            const time = new Date().toLocaleTimeString('zh-TW');
+            const logEntry = document.createElement('div');
+            logEntry.className = 'log-entry';
+            logEntry.innerHTML = `<span class="log-time">[${time}]</span> ${message}`;
+            logContainer.appendChild(logEntry);
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+        
+        // 清空日誌
+        function clearLogs() {
+            const logContainer = document.getElementById('logContainer');
+            logContainer.innerHTML = '<div class="log-entry"><span class="log-time">[系統]</span> 日誌已清空</div>';
+        }
+        
+        function toggleSidebar() {
+            if (!sidebar) {
+                return;
+            }
+            if (sidebar.classList.contains('open')) {
+                closeSidebar();
+            } else {
+                openSidebar();
+            }
+        }
+
+        function openSidebar() {
+            if (!sidebar) {
+                return;
+            }
+            sidebar.classList.add('open');
+            if (sidebarOverlay) {
+                sidebarOverlay.classList.add('active');
+            }
+            document.body.classList.add('sidebar-open');
+        }
+
+        function closeSidebar() {
+            if (!sidebar) {
+                return;
+            }
+            sidebar.classList.remove('open');
+            if (sidebarOverlay) {
+                sidebarOverlay.classList.remove('active');
+            }
+            document.body.classList.remove('sidebar-open');
+        }
+
+        function handleResponsiveSidebar() {
+            if (!sidebar) {
+                return;
+            }
+
+            if (window.innerWidth > 768) {
+                sidebar.classList.add('open');
+                if (sidebarOverlay) {
+                    sidebarOverlay.classList.remove('active');
+                }
+                document.body.classList.remove('sidebar-open');
+            } else {
+                sidebar.classList.remove('open');
+                if (sidebarOverlay) {
+                    sidebarOverlay.classList.remove('active');
+                }
+                document.body.classList.remove('sidebar-open');
+            }
+        }
+
+        // 顯示彈窗
+        function showCreateAdModal() {
+            const form = document.getElementById('createAdForm');
+            if (form) {
+                form.reset();
+            }
+            const groupsInput = document.getElementById('newAdGroups');
+            if (groupsInput) {
+                groupsInput.value = 'general';
+            }
+            const progressContainer = document.getElementById('uploadProgress');
+            if (progressContainer) {
+                progressContainer.style.display = 'none';
+            }
+            updateProgress(0, '準備上傳...');
+            document.getElementById('createAdModal').style.display = 'block';
+        }
+        
+        // 關閉彈窗
+        function closeModal(modalId) {
+            document.getElementById(modalId).style.display = 'none';
+        }
+        
+        // 格式化文件大小
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+        
+        function renderDeviceLocation(detail) {
+            if (!detail || !detail.last_location || !Array.isArray(detail.last_location.coordinates)) {
+                return '<p>GPS：尚無資料</p>';
+            }
+            
+            const [longitudeRaw, latitudeRaw] = detail.last_location.coordinates;
+            const longitude = Number(longitudeRaw);
+            const latitude = Number(latitudeRaw);
+            
+            if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) {
+                return '<p>GPS：尚無資料</p>';
+            }
+            
+            const latFixed = latitude.toFixed(6);
+            const lngFixed = longitude.toFixed(6);
+            
+            return `
+                <p>GPS：緯度 ${latFixed}，經度 ${lngFixed}</p>
+                <button class="btn btn-primary btn-small" type="button" onclick="openMapAt(${latitude}, ${longitude})">
+                    在地圖查看
+                </button>
+            `;
+        }
+        
+        function openMapAt(lat, lng) {
+            const latNum = Number(lat);
+            const lngNum = Number(lng);
+            
+            if (!Number.isFinite(latNum) || !Number.isFinite(lngNum)) {
+                alert('無法開啟地圖：GPS 資料無效');
+                return;
+            }
+            
+            const url = `https://www.google.com/maps?q=${latNum},${lngNum}`;
+            window.open(url, '_blank', 'noopener');
+        }
+
+        function renderDevicePlayback(detail) {
+            if (!detail || !detail.playback_state) {
+                return '<p>播放狀態：尚無資料</p>';
+            }
+            const state = detail.playback_state;
+            return `
+                <p>播放狀態：${renderPlaybackMode(state.mode)}</p>
+                <p>播放內容：${renderPlaybackMedia(state)}</p>
+                <p>更新時間：${formatTimestamp(state.updated_at)}</p>
+            `;
+        }
+
+        function renderPlaybackMode(mode) {
+            const mapping = {
+                registered: '剛註冊',
+                campaign_playback: '活動播放',
+                local_playlist: '本地播放',
+                single_play: '單次播放',
+                override_play: '覆蓋播放',
+                offline: '離線',
+                unknown: '未知'
+            };
+            if (!mode) {
+                return mapping.unknown;
+            }
+            return mapping[mode] || `${mode}`;
+        }
+
+        function renderPlaybackMedia(state) {
+            if (!state) {
+                return '-';
+            }
+
+            const name = state.advertisement_name || '未指定廣告';
+            const filename = state.video_filename || '-';
+            let playlistInfo = '';
+
+            if (Array.isArray(state.playlist) && state.playlist.length > 0) {
+                playlistInfo = `（播放清單 ${state.playlist.length}）`;
+            }
+
+            if (state.mode === 'local_playlist') {
+                return '本地播放列表';
+            }
+
+            if (state.mode === 'offline') {
+                return '設備離線';
+            }
+
+            return `${name} <small style="color:#7f8c8d;">${filename}</small> ${playlistInfo}`;
+        }
+
+        function formatTimestamp(timestamp) {
+            if (!timestamp) {
+                return '-';
+            }
+            const date = new Date(timestamp);
+            if (Number.isNaN(date.getTime())) {
+                return timestamp;
+            }
+            return date.toLocaleString('zh-TW');
+        }
+        
+        // 開啟雙螢幕中控台（新開視窗）
+        function openDualScreenControl(event) {
+            // 更新選單樣式
+            document.querySelectorAll('.sidebar-item').forEach(item => {
+                item.classList.remove('active');
+            });
+            if (event && event.currentTarget) {
+                event.currentTarget.classList.add('active');
+            }
+
+            // 在新分頁開啟
+            window.open('/control', '_blank');
+        }
+
+        // 點擊彈窗外部關閉
+        window.onclick = function(event) {
+            if (event.target.classList.contains('modal')) {
+                event.target.style.display = 'none';
+            }
+        }
+    </script>
+</body>
+</html>
