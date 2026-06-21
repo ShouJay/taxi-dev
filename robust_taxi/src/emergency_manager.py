@@ -18,11 +18,11 @@ class EmergencyManager:
         # 預設警報影片檔名，App 應預先下載此影片以達成秒級切換
         self.emergency_video_filename = "earthquake_alert.mp4" 
         self.qr_scan_count = 0
-        self.socketio = None
+        self.mqtt_publisher = None
         logger.info("EmergencyManager initialized")
 
-    def set_socketio(self, socketio):
-        self.socketio = socketio
+    def set_mqtt_publisher(self, mqtt_publisher):
+        self.mqtt_publisher = mqtt_publisher
 
     def trigger_alarm(self):
         if not self.is_alarm_active:
@@ -64,12 +64,15 @@ class EmergencyManager:
         }
 
     def broadcast_state(self):
-        if self.socketio:
-            self.socketio.emit('system_state_update', self.get_state())
+        if self.mqtt_publisher:
+            payload = self.get_state()
+            payload["type"] = "system_state"
+            self.mqtt_publisher.publish_emergency(payload)
 
     def broadcast_stats(self):
-        if self.socketio:
-            self.socketio.emit('stats_update', {
+        if self.mqtt_publisher:
+            self.mqtt_publisher.publish_emergency({
+                "type": "stats_update",
                 "qr_scan_count": self.qr_scan_count,
                 "timestamp": datetime.now().isoformat()
             })

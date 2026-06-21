@@ -17,7 +17,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
 # 導入並運行整合應用
 if __name__ == '__main__':
-    from src.app import app, socketio, FLASK_HOST, FLASK_PORT, FLASK_DEBUG
+    from src.app import app, FLASK_HOST, FLASK_PORT, FLASK_DEBUG
     
     # 配置日誌
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -25,17 +25,11 @@ if __name__ == '__main__':
 
     try:
         logger.info(f"正在啟動整合版智能計程車廣告服務...")
-        logger.info(f"WebSocket 端點: ws://{FLASK_HOST}:{FLASK_PORT}")
+        logger.info(f"MQTT Broker 由獨立服務提供")
         logger.info(f"HTTP 端點: http://{FLASK_HOST}:{FLASK_PORT}")
         logger.info("請先訪問 http://{}/init_db 來初始化數據庫".format(f"{FLASK_HOST}:{FLASK_PORT}"))
         
         # 運行整合應用程序
-        socketio.run(
-            app,
-            host=FLASK_HOST,
-            port=FLASK_PORT,
-            debug=FLASK_DEBUG,
-            allow_unsafe_werkzeug=True
-        )
+        app.run(host=FLASK_HOST, port=FLASK_PORT, debug=FLASK_DEBUG)
     except Exception as e:
         logger.error(f"啟動整合服務失敗: {e}")

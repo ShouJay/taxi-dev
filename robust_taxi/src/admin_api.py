@@ -10,6 +10,7 @@ import logging
 import os
 import uuid
 import json
+import hashlib
 from werkzeug.utils import secure_filename
 
 logger = logging.getLogger(__name__)
@@ -54,10 +55,7 @@ def cleanup_chunks(upload_id):
 
 def init_admin_api(
     db,
-    socketio,
-    device_to_sid,
-    connection_stats,
-    active_connections,
+    mqtt_publisher,
     device_campaign_state=None,
     device_playback_state=None
 ):
@@ -66,13 +64,27 @@ def init_admin_api(
     
     Args:
         db: Database 實例
-        socketio: SocketIO 實例
-        device_to_sid: 設備到 SID 的映射
-        connection_stats: 連接統計數據
-        active_connections: 活動連接映射
+        mqtt_publisher: MQTT 發布器
         device_campaign_state: 設備活動快取
         device_playback_state: 設備播放狀態快取
     """
+    def is_device_online(device_id):
+        device = db.devices.find_one({"_id": device_id}, {"status": 1})
+        return bool(device and device.get("status") == "online")
+
+    def publish_desired_command(device_id, command_payload):
+        desired_payload = {
+            "campaign_id": command_payload.get("campaign_id"),
+            "videos": command_payload.get("videos", []),
+            "command": command_payload,
+            "updated_at": datetime.now().isoformat()
+        }
+        db.devices.update_one(
+            {"_id": device_id},
+            {"$set": {"shadow.desired": desired_payload}},
+            upsert=False
+        )
+        mqtt_publisher.publish_desired(device_id, desired_payload)
     
     # ========================================================================
     # 連接與設備管理 API
@@ -97,22 +109,36 @@ def init_admin_api(
         """
         try:
             active_devices = []
-            
-            for sid, conn_info in active_connections.items():
-                active_devices.append({
-                    'device_id': conn_info['device_id'],
-                    'sid': sid,
-                    'connected_at': conn_info['connected_at'],
-                    'last_activity': conn_info['last_activity']
-                })
+
+            for device in db.devices.find({"status": "online"}):
+                device_id = device["_id"]
+                entry = {
+                    "device_id": device_id,
+                    "status": "online",
+                    "last_location": device.get("last_location"),
+                    "connected_at": device.get("created_at") or datetime.now().isoformat(),
+                    "last_activity": (
+                        device.get("shadow", {})
+                        .get("reported", {})
+                        .get("updated_at")
+                        or device.get("shadow", {}).get("desired", {}).get("updated_at")
+                        or datetime.now().isoformat()
+                    )
+                }
                 if device_playback_state is not None:
-                    playback_state = device_playback_state.get(conn_info['device_id'])
+                    playback_state = device_playback_state.get(device_id)
                     if playback_state is not None:
-                        active_devices[-1]['playback_state'] = deepcopy(playback_state)
+                        entry["playback_state"] = deepcopy(playback_state)
+                active_devices.append(entry)
+
+            stats = {
+                "active_devices": len(active_devices),
+                "messages_sent": 0
+            }
             
             return jsonify({
                 "status": "success",
-                "stats": connection_stats,
+                "stats": stats,
                 "active_devices": active_devices
             }), 200
         except Exception as e:
@@ -164,7 +190,7 @@ def init_admin_api(
                     device['device_id'] = device.pop('_id')
                 
                 # 添加在線狀態
-                device['is_online'] = device.get('device_id', device.get('_id')) in device_to_sid
+                device['is_online'] = device.get('status') == 'online'
                 
                 if device_playback_state is not None:
                     playback_state = device_playback_state.get(device['device_id'])
@@ -213,11 +239,7 @@ def init_admin_api(
             device['device_id'] = device.pop('_id')
             
             # 添加在線狀態和連接信息
-            device['is_online'] = device_id in device_to_sid
-            if device['is_online']:
-                sid = device_to_sid[device_id]
-                if sid in active_connections:
-                    device['connection_info'] = active_connections[sid]
+            device['is_online'] = device.get('status') == 'online'
             
             if device_playback_state is not None:
                 playback_state = device_playback_state.get(device_id)
@@ -261,16 +283,6 @@ def init_admin_api(
                     "status": "error",
                     "message": f"設備 {device_id} 不存在"
                 }), 404
-            
-            # 如果設備在線，先斷開連接
-            if device_id in device_to_sid:
-                sid = device_to_sid[device_id]
-                try:
-                    socketio.emit('force_disconnect', {
-                        'reason': '設備已被刪除'
-                    }, room=sid)
-                except:
-                    pass
             
             # 刪除設備
             result = db.devices.delete_one({"_id": device_id})
@@ -316,7 +328,7 @@ def init_admin_api(
             for device_id, playback in device_playback_state.items():
                 entry = deepcopy(playback)
                 entry['device_id'] = device_id
-                entry['is_online'] = device_id in device_to_sid
+                entry['is_online'] = is_device_online(device_id)
                 playback_list.append(entry)
             
             playback_list.sort(key=lambda item: item.get('updated_at', ''), reverse=True)
@@ -356,7 +368,7 @@ def init_admin_api(
             
             response = deepcopy(playback_state)
             response['device_id'] = device_id
-            response['is_online'] = device_id in device_to_sid
+            response['is_online'] = is_device_online(device_id)
             
             return jsonify({
                 "status": "success",
@@ -775,18 +787,15 @@ def init_admin_api(
                 
                 for device_id in affected_devices:
                     device_campaign_state[device_id] = None
-                    sid = device_to_sid.get(device_id)
-                    
-                    if sid:
-                        try:
-                            socketio.emit('revert_to_local_playlist', {
-                                "command": "REVERT_TO_LOCAL_PLAYLIST",
-                                "reason": "campaign_deleted",
-                                "campaign_id": campaign_id,
-                                "timestamp": datetime.now().isoformat()
-                            }, room=sid)
-                        except Exception as emit_error:
-                            logger.error(f"通知設備 {device_id} 活動刪除時出錯: {emit_error}")
+                    try:
+                        publish_desired_command(device_id, {
+                            "command": "REVERT_TO_LOCAL_PLAYLIST",
+                            "reason": "campaign_deleted",
+                            "campaign_id": campaign_id,
+                            "videos": []
+                        })
+                    except Exception as emit_error:
+                        logger.error(f"通知設備 {device_id} 活動刪除時出錯: {emit_error}")
             
             logger.info(f"活動已刪除: {campaign_id}，受影響設備: {affected_devices}")
             
@@ -851,6 +860,7 @@ def init_admin_api(
                 }), 400
             
             # 創建設備
+            from src.models import DeviceModel
             device = {
                 "_id": device_id,
                 "device_type": device_type,
@@ -859,7 +869,8 @@ def init_admin_api(
                     "type": "Point",
                     "coordinates": [121.5200, 25.0400]  # 預設台北市中心
                 },
-                "status": "active",
+                "status": "offline",
+                "shadow": DeviceModel.default_shadow(),
                 "created_at": datetime.now().isoformat()
             }
             
@@ -1493,6 +1504,11 @@ def init_admin_api(
             
             # 獲取最終文件大小
             file_size = os.path.getsize(final_path)
+            md5_hasher = hashlib.md5()
+            with open(final_path, "rb") as merged_file:
+                for chunk in iter(lambda: merged_file.read(1024 * 1024), b""):
+                    md5_hasher.update(chunk)
+            md5_hash = md5_hasher.hexdigest()
             
             # 創建廣告記錄
             from src.models import AdvertisementModel
@@ -1502,7 +1518,8 @@ def init_admin_api(
                 video_filename=final_filename,
                 video_path=final_path,
                 file_size=file_size,
-                upload_date=datetime.now().isoformat()
+                upload_date=datetime.now().isoformat(),
+                md5_hash=md5_hash
             )
             
             # 保存到數據庫
@@ -2068,21 +2085,18 @@ def init_admin_api(
             offline_devices = []
             
             for device_id in target_device_ids:
-                sid = device_to_sid.get(device_id)
-                
-                if sid:
-                    try:
-                        # 發送下載命令到特定客戶端
-                        socketio.emit('download_video', download_command, room=sid)
-                        sent_to.append(device_id)
-                        connection_stats['messages_sent'] += 1
-                        logger.info(f"下載命令已發送到: {device_id} (SID: {sid})")
-                    except Exception as e:
-                        logger.error(f"發送到 {device_id} 時出錯: {e}")
-                        offline_devices.append(device_id)
-                else:
+                if not is_device_online(device_id):
                     offline_devices.append(device_id)
-                    logger.warning(f"設備離線或未連接: {device_id}")
+                    logger.warning(f"設備離線: {device_id}")
+                    continue
+
+                try:
+                    publish_desired_command(device_id, download_command)
+                    sent_to.append(device_id)
+                    logger.info(f"下載命令已發送到: {device_id}")
+                except Exception as e:
+                    logger.error(f"發送到 {device_id} 時出錯: {e}")
+                    offline_devices.append(device_id)
             
             # 構建並返回響應
             response = {
@@ -2234,17 +2248,14 @@ def init_admin_api(
                 offline_devices = []
                 
                 for device_id in target_device_ids:
-                    sid = device_to_sid.get(device_id)
-                    
-                    if sid:
-                        try:
-                            socketio.emit('download_video', download_command, room=sid)
-                            sent_to.append(device_id)
-                            connection_stats['messages_sent'] += 1
-                        except Exception as e:
-                            logger.error(f"發送到 {device_id} 時出錯: {e}")
-                            offline_devices.append(device_id)
-                    else:
+                    if not is_device_online(device_id):
+                        offline_devices.append(device_id)
+                        continue
+                    try:
+                        publish_desired_command(device_id, download_command)
+                        sent_to.append(device_id)
+                    except Exception as e:
+                        logger.error(f"發送到 {device_id} 時出錯: {e}")
                         offline_devices.append(device_id)
                 
                 batch_results.append({
@@ -2372,31 +2383,28 @@ def init_admin_api(
             offline_devices = []
             
             for device_id in target_device_ids:
-                sid = device_to_sid.get(device_id)
-                
-                if sid:
-                    try:
-                        # 發送覆蓋命令到特定客戶端
-                        socketio.emit('play_ad', payload, room=sid)
-                        sent_to.append(device_id)
-                        connection_stats['messages_sent'] += 1
-                        if device_playback_state is not None:
-                            device_playback_state[device_id] = {
-                                "mode": "override_play",
-                                "video_filename": video_filename,
-                                "advertisement_id": advertisement_id,
-                                "advertisement_name": advertisement.get('name', ''),
-                                "campaign_id": None,
-                                "playlist": [],
-                                "updated_at": datetime.now().isoformat()
-                            }
-                        logger.info(f"推送命令已發送到: {device_id} (SID: {sid})")
-                    except Exception as e:
-                        logger.error(f"發送到 {device_id} 時出錯: {e}")
-                        offline_devices.append(device_id)
-                else:
+                if not is_device_online(device_id):
                     offline_devices.append(device_id)
-                    logger.warning(f"設備離線或未連接: {device_id}")
+                    logger.warning(f"設備離線: {device_id}")
+                    continue
+
+                try:
+                    publish_desired_command(device_id, payload)
+                    sent_to.append(device_id)
+                    if device_playback_state is not None:
+                        device_playback_state[device_id] = {
+                            "mode": "override_play",
+                            "video_filename": video_filename,
+                            "advertisement_id": advertisement_id,
+                            "advertisement_name": advertisement.get('name', ''),
+                            "campaign_id": None,
+                            "playlist": [],
+                            "updated_at": datetime.now().isoformat()
+                        }
+                    logger.info(f"推送命令已發送到: {device_id}")
+                except Exception as e:
+                    logger.error(f"發送到 {device_id} 時出錯: {e}")
+                    offline_devices.append(device_id)
             
             # 構建並返回響應
             response = {
@@ -2452,6 +2460,7 @@ def init_admin_api(
         try:
             # 獲取設備總數
             total_devices = db.devices.count_documents({})
+            online_devices = db.devices.count_documents({"status": "online"})
             
             # 獲取廣告總數
             total_ads = db.advertisements.count_documents({})
@@ -2464,8 +2473,8 @@ def init_admin_api(
             stats = {
                 "devices": {
                     "total": total_devices,
-                    "online": connection_stats['active_devices'],
-                    "offline": total_devices - connection_stats['active_devices']
+                    "online": online_devices,
+                    "offline": total_devices - online_devices
                 },
                 "advertisements": {
                     "total": total_ads,
@@ -2477,7 +2486,9 @@ def init_admin_api(
                     "active": active_campaigns,
                     "inactive": total_campaigns - active_campaigns
                 },
-                "connections": connection_stats
+                "connections": {
+                    "active_devices": online_devices
+                }
             }
             
             return jsonify({
@@ -2490,6 +2501,44 @@ def init_admin_api(
             return jsonify({
                 "status": "error",
                 "message": "獲取統計數據失敗"
+            }), 500
+
+    @admin_api.route('/videos/rehash', methods=['POST'])
+    def rehash_videos():
+        """補算缺失的影片 MD5。"""
+        try:
+            fixed = 0
+            skipped = 0
+            for ad in db.advertisements.find({}):
+                ad_id = ad.get("_id")
+                video_path = ad.get("video_path")
+                if not video_path or not os.path.exists(video_path):
+                    skipped += 1
+                    continue
+                if ad.get("md5_hash"):
+                    skipped += 1
+                    continue
+
+                hasher = hashlib.md5()
+                with open(video_path, "rb") as video_file:
+                    for chunk in iter(lambda: video_file.read(1024 * 1024), b""):
+                        hasher.update(chunk)
+                db.advertisements.update_one(
+                    {"_id": ad_id},
+                    {"$set": {"md5_hash": hasher.hexdigest(), "file_size": os.path.getsize(video_path)}}
+                )
+                fixed += 1
+
+            return jsonify({
+                "status": "success",
+                "fixed": fixed,
+                "skipped": skipped
+            }), 200
+        except Exception as e:
+            logger.error(f"補算影片 MD5 失敗: {e}", exc_info=True)
+            return jsonify({
+                "status": "error",
+                "message": "補算影片 MD5 失敗"
             }), 500
     
     
@@ -2550,17 +2599,17 @@ def init_admin_api(
             # if hasattr(db, 'qr_scans'):
             #     db.qr_scans.insert_one(scan_record)
             
-            # 通過 WebSocket 廣播給所有管理員（如果有的話）
+            # 透過 MQTT 廣播事件（可供後續中控台訂閱）
             try:
-                socketio.emit('qr_scan_event', {
+                mqtt_publisher.publish_emergency({
                     "type": "qr_scan",
                     "message": "使用者掃描QRcode",
                     "data": scan_record,
                     "timestamp": datetime.now().isoformat()
-                }, namespace='/')
-                logger.debug("已通過 WebSocket 廣播 QR Code 掃描事件")
-            except Exception as ws_error:
-                logger.warning(f"WebSocket 廣播失敗: {ws_error}")
+                })
+                logger.debug("已透過 MQTT 廣播 QR Code 掃描事件")
+            except Exception as mqtt_error:
+                logger.warning(f"MQTT 廣播失敗: {mqtt_error}")
             
             return jsonify({
                 "status": "success",

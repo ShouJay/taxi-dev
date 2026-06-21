@@ -7,6 +7,22 @@ from datetime import datetime
 
 class DeviceModel:
     """設備數據模型"""
+
+    @staticmethod
+    def default_shadow():
+        return {
+            "desired": {
+                "campaign_id": None,
+                "videos": [],
+                "updated_at": None
+            },
+            "reported": {
+                "current_campaign_id": None,
+                "local_inventory": [],
+                "errors": [],
+                "updated_at": None
+            }
+        }
     
     @staticmethod
     def create(device_id, device_type, longitude, latitude, groups):
@@ -18,7 +34,9 @@ class DeviceModel:
                 "type": "Point",
                 "coordinates": [longitude, latitude]  # [經度, 緯度]
             },
-            "groups": groups
+            "groups": groups,
+            "status": "offline",
+            "shadow": DeviceModel.default_shadow()
         }
     
     @staticmethod
@@ -34,7 +52,16 @@ class AdvertisementModel:
     """廣告數據模型"""
     
     @staticmethod
-    def create(ad_id, name, video_filename, video_path=None, file_size=None, duration=None, upload_date=None):
+    def create(
+        ad_id,
+        name,
+        video_filename,
+        video_path=None,
+        file_size=None,
+        duration=None,
+        upload_date=None,
+        md5_hash=None
+    ):
         """創建廣告文檔"""
         ad_doc = {
             "_id": ad_id,
@@ -51,6 +78,8 @@ class AdvertisementModel:
             ad_doc["file_size"] = file_size
         if duration:
             ad_doc["duration"] = duration
+        if md5_hash:
+            ad_doc["md5_hash"] = md5_hash
             
         return ad_doc
 

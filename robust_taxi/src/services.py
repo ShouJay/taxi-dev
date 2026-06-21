@@ -1,11 +1,10 @@
-"""
-業務邏輯服務層
-實現廣告決策引擎的核心業務邏輯
-"""
+"""業務邏輯服務層。"""
 
 import logging
-from src.models import DeviceModel, CampaignModel, HeartbeatResponse
-from src.config import DEFAULT_VIDEO
+from datetime import datetime, timezone
+
+from src.config import API_BASE_URL, CDN_BASE_URL, DEFAULT_VIDEO
+from src.models import CampaignModel, DeviceModel
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +20,91 @@ class AdDecisionService:
             database: Database 實例
         """
         self.db = database
+
+    def _get_eligible_campaign(self, device_id, longitude, latitude):
+        device = self.db.devices.find_one({"_id": device_id})
+        if not device:
+            logger.warning(f"找不到設備: {device_id}")
+            return None, None
+
+        self.db.devices.update_one(
+            {"_id": device_id},
+            {
+                "$set": {
+                    "last_location": DeviceModel.update_location(longitude, latitude)
+                }
+            }
+        )
+
+        point = CampaignModel.create_point_query(longitude, latitude)
+        device_groups = device.get("groups", [])
+        matching_campaigns = self.db.campaigns.find({
+            "geo_fence": {"$geoIntersects": {"$geometry": point}},
+            "status": "active"
+        })
+
+        eligible = []
+        for campaign in matching_campaigns:
+            target_groups = campaign.get("target_groups", [])
+            if any(group in target_groups for group in device_groups):
+                eligible.append(campaign)
+
+        if not eligible:
+            return device, None
+
+        selected = max(eligible, key=lambda c: c.get("priority", 0))
+        return device, selected
+
+    def _resolve_campaign_ads(self, campaign):
+        advertisement_ids = campaign.get("advertisement_ids")
+        if not advertisement_ids:
+            advertisement_id = campaign.get("advertisement_id")
+            advertisement_ids = [advertisement_id] if advertisement_id else []
+
+        if not advertisement_ids:
+            return []
+
+        resolved = []
+        for ad_id in advertisement_ids:
+            ad_doc = self.db.advertisements.find_one({"_id": ad_id, "status": "active"})
+            if ad_doc:
+                resolved.append((ad_id, ad_doc))
+        return resolved
+
+    def _build_download_url(self, ad_id):
+        if CDN_BASE_URL:
+            return f"{CDN_BASE_URL}/{ad_id}"
+        return f"{API_BASE_URL}/api/v1/device/videos/{ad_id}/download"
+
+    def build_desired_playlist(self, device_id, longitude, latitude):
+        device, campaign = self._get_eligible_campaign(device_id, longitude, latitude)
+        if not device:
+            return None
+
+        updated_at = datetime.now(timezone.utc).isoformat()
+        if campaign is None:
+            return {
+                "campaign_id": None,
+                "videos": [],
+                "updated_at": updated_at
+            }
+
+        resolved_ads = self._resolve_campaign_ads(campaign)
+        videos = []
+        for ad_id, ad_doc in resolved_ads:
+            videos.append({
+                "video_id": ad_id,
+                "url": self._build_download_url(ad_id),
+                "md5": ad_doc.get("md5_hash"),
+                "file_size": ad_doc.get("file_size"),
+                "video_filename": ad_doc.get("video_filename")
+            })
+
+        return {
+            "campaign_id": campaign["_id"],
+            "videos": videos,
+            "updated_at": updated_at
+        }
     
     def decide_ad(self, device_id, longitude, latitude):
         """
@@ -37,125 +121,28 @@ class AdDecisionService:
             或 None（無匹配廣告）
         """
         try:
-            # 1. 查找設備信息
-            device = self.db.devices.find_one({"_id": device_id})
-            
-            if not device:
-                logger.warning(f"找不到設備: {device_id}")
+            desired = self.build_desired_playlist(device_id, longitude, latitude)
+            if desired is None:
                 return None
-            
-            device_groups = device.get('groups', [])
-            logger.info(f"設備 {device_id} 的分組: {device_groups}")
-            
-            # 2. 更新設備的最後位置
-            self.db.devices.update_one(
-                {"_id": device_id},
-                {
-                    "$set": {
-                        "last_location": DeviceModel.update_location(longitude, latitude)
-                    }
+
+            if not desired["videos"]:
+                return {
+                    "video_filename": DEFAULT_VIDEO,
+                    "advertisement_id": None,
+                    "advertisement_name": "default",
+                    "campaign_id": None,
+                    "advertisement_ids": []
                 }
-            )
-            
-            # 3. 構建地理空間查詢
-            point = CampaignModel.create_point_query(longitude, latitude)
-            
-            # 4. 查找所有與設備位置相交的地理圍欄
-            matching_campaigns = self.db.campaigns.find({
-                "geo_fence": {
-                    "$geoIntersects": {
-                        "$geometry": point
-                    }
-                },
-                "status": "active"  # 只查詢活躍的活動
-            })
-            
-            # 5. 過濾符合目標分組的活動
-            eligible_campaigns = []
-            for campaign in matching_campaigns:
-                target_groups = campaign.get('target_groups', [])
-                
-                # 檢查設備的任一分組是否在活動的目標分組中
-                if any(group in target_groups for group in device_groups):
-                    eligible_campaigns.append(campaign)
-                    logger.info(
-                        f"找到符合條件的活動: {campaign['_id']} "
-                        f"(優先級: {campaign.get('priority', 0)})"
-                    )
-            
-            # 6. 選擇優先級最高的活動
-            if not eligible_campaigns:
-                logger.info("沒有找到符合條件的活動，跳過推播")
-                return None
-            
-            selected_campaign = max(
-                eligible_campaigns,
-                key=lambda c: c.get('priority', 0)
-            )
-            logger.info(f"選中活動: {selected_campaign['_id']}")
-            
-            # 7. 獲取對應的廣告視頻文件名（支持多個廣告循環播放）
-            # 優先使用 advertisement_ids（多個廣告列表）
-            advertisement_ids = selected_campaign.get('advertisement_ids')
-            
-            # 如果沒有 advertisement_ids，使用舊的 advertisement_id（向後兼容）
-            if not advertisement_ids:
-                advertisement_id = selected_campaign.get('advertisement_id')
-                if advertisement_id:
-                    advertisement_ids = [advertisement_id]
-                else:
-                    logger.warning("活動中沒有任何廣告，跳過推播")
-                    return None
-            
-            # 循環播放邏輯：獲取當前索引並選擇下一個廣告
-            current_index = selected_campaign.get('current_ad_index', 0)
-            if current_index >= len(advertisement_ids):
-                current_index = 0
-            
-            advertisement = None
-            advertisement_id = None
-            selected_index = current_index
-            list_len = len(advertisement_ids)
-            for i in range(list_len):
-                idx = (current_index + i) % list_len
-                candidate_id = advertisement_ids[idx]
-                candidate = self.db.advertisements.find_one({
-                    "_id": candidate_id,
-                    "status": "active"
-                })
-                if candidate:
-                    advertisement = candidate
-                    advertisement_id = candidate_id
-                    selected_index = idx
-                    break
-                else:
-                    logger.warning(
-                        f"活動 {selected_campaign['_id']} 的廣告 {candidate_id} 無效或已下架，跳過"
-                    )
-            
-            if not advertisement:
-                logger.warning(f"活動 {selected_campaign['_id']} 沒有可用的廣告，跳過推播")
-                return None
-            
-            # 更新下一個播放索引
-            next_index = (selected_index + 1) % list_len
-            self.db.campaigns.update_one(
-                {"_id": selected_campaign['_id']},
-                {"$set": {"current_ad_index": next_index}}
-            )
-            
-            video_filename = advertisement.get('video_filename', DEFAULT_VIDEO)
-            advertisement_name = advertisement.get('name', '未命名廣告')
-            logger.info(f"決定播放廣告視頻: {video_filename} (活動: {selected_campaign['_id']}, 索引: {current_index}/{len(advertisement_ids)-1})")
-            
+
+            primary = desired["videos"][0]
+            advertisement = self.db.advertisements.find_one({"_id": primary["video_id"]}) or {}
             return {
-                "video_filename": video_filename,
-                "advertisement_id": advertisement_id,
-                "advertisement_name": advertisement_name,
-                "campaign_id": selected_campaign['_id'],
-                "advertisement_ids": advertisement_ids
+                "video_filename": primary.get("video_filename", DEFAULT_VIDEO),
+                "advertisement_id": primary["video_id"],
+                "advertisement_name": advertisement.get("name", "未命名廣告"),
+                "campaign_id": desired["campaign_id"],
+                "advertisement_ids": [video["video_id"] for video in desired["videos"]]
             }
-            
         except Exception as e:
             logger.error(f"廣告決策過程出錯: {e}", exc_info=True)
             return None

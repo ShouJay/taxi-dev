@@ -1,7 +1,4 @@
-version: '3.8'
-
 services:
-  # MongoDB 數據庫
   mongodb:
     image: mongo:7.0
     container_name: smart_taxi_mongodb
@@ -15,7 +12,22 @@ services:
     networks:
       - smart_taxi_network
 
-  # 整合版智能計程車廣告服務
+  emqx:
+    image: emqx/emqx:5.8
+    container_name: smart_taxi_emqx
+    restart: always
+    ports:
+      - "1883:1883"
+      - "8083:8083"
+      - "8883:8883"
+      - "18083:18083"
+    volumes:
+      - emqx_data:/opt/emqx/data
+    environment:
+      EMQX_ALLOW_ANONYMOUS: "true"
+    networks:
+      - smart_taxi_network
+
   smart_taxi_service:
     build:
       context: ..
@@ -26,18 +38,42 @@ services:
       - "8080:8080"
     depends_on:
       - mongodb
+      - emqx
     environment:
       - MONGODB_URI=mongodb://mongodb:27017/
       - DATABASE_NAME=smart_taxi_ads
       - FLASK_HOST=0.0.0.0
       - FLASK_PORT=8080
       - FLASK_DEBUG=False
+      - MQTT_BROKER_HOST=emqx
+      - MQTT_BROKER_PORT=1883
+      - API_BASE_URL=http://smart_taxi_service:8080
     command: python run_app.py
+    networks:
+      - smart_taxi_network
+
+  mqtt_worker:
+    build:
+      context: ..
+      dockerfile: ./Dockerfile
+    container_name: smart_taxi_mqtt_worker
+    restart: always
+    depends_on:
+      - mongodb
+      - emqx
+    environment:
+      - MONGODB_URI=mongodb://mongodb:27017/
+      - DATABASE_NAME=smart_taxi_ads
+      - MQTT_BROKER_HOST=emqx
+      - MQTT_BROKER_PORT=1883
+      - API_BASE_URL=http://smart_taxi_service:8080
+    command: python run_mqtt_worker.py
     networks:
       - smart_taxi_network
 
 volumes:
   mongodb_data:
+  emqx_data:
 
 networks:
   smart_taxi_network:

@@ -628,7 +628,7 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
                 <h2>設備管理</h2>
                 <div class="card">
                     <div class="card-title">
-                        線上設備
+                        線上設備（MQTT 狀態）
                         <button class="btn btn-primary" style="float: right;" onclick="refreshDevices()">
                             🔄 刷新
                         </button>
@@ -1001,51 +1001,9 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
         
 
         
-        // 初始化 WebSocket (使用 Socket.IO)
+        // MQTT 架構下，管理後台改以 HTTP 輪詢取得狀態
         function initWebSocket() {
-            try {
-                // 如果已經有連接，先斷開
-                if (socket) {
-                    socket.disconnect();
-                }
-                
-                // 建立 Socket.IO 連接
-                socket = io(SOCKETIO_URL, {
-                    transports: ['websocket'],
-                    reconnection: true,
-                    reconnectionDelay: 5000,
-                    reconnectionAttempts: Infinity
-                });
-                
-                socket.on('connect', function() {
-                    addLog('Socket.IO 連接已建立 (SID: ' + socket.id + ')', 'info');
-                });
-                
-                socket.on('disconnect', function() {
-                    addLog('Socket.IO 連接已斷開', 'warning');
-                });
-                
-                socket.on('connect_error', function(error) {
-                    addLog('Socket.IO 連接錯誤: ' + error.message, 'error');
-                });
-                
-                socket.on('connection_established', function(data) {
-                    addLog('服務器確認連接: ' + data.message, 'info');
-                });
-                
-                // 監聽設備連接/斷開事件
-                socket.on('device_status', function(data) {
-                    handleWebSocketMessage(data);
-                });
-                
-                // 監聽 QR Code 掃描事件
-                socket.on('qr_scan_event', function(data) {
-                    handleQRScanEvent(data);
-                });
-                
-            } catch (error) {
-                addLog('初始化 Socket.IO 失敗: ' + error.message, 'error');
-            }
+            addLog('目前使用 MQTT 後端，前台改為 HTTP 輪詢模式', 'info');
         }
         
         // 處理 WebSocket 消息
