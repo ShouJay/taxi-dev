@@ -2,34 +2,35 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:async';
 import '../config/app_config.dart';
-import '../services/websocket_manager.dart';
+import '../services/mqtt_manager.dart';
 import '../managers/playback_manager.dart';
 import '../services/download_manager.dart';
 import '../services/location_service.dart';
 import '../models/download_info.dart';
 
-// PlaybackInfo 在 playback_manager.dart 中定義
-
-/// 設定頁面
 class SettingsScreen extends StatefulWidget {
-  final WebSocketManager webSocketManager;
+  final MqttManager mqttManager;
   final PlaybackManager playbackManager;
   final DownloadManager downloadManager;
   final LocationService? locationService;
   final bool isAdminMode;
+  final String deviceRole;
   final Future<void> Function(bool) onAdminModeChanged;
+  final Future<void> Function(String) onDeviceRoleChanged;
   final VoidCallback onBack;
 
   const SettingsScreen({
-    Key? key,
-    required this.webSocketManager,
+    super.key,
+    required this.mqttManager,
     required this.playbackManager,
     required this.downloadManager,
     this.locationService,
     required this.isAdminMode,
+    required this.deviceRole,
     required this.onAdminModeChanged,
+    required this.onDeviceRoleChanged,
     required this.onBack,
-  }) : super(key: key);
+  });
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -37,35 +38,32 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   late TextEditingController _deviceIdController;
-  late TextEditingController _serverUrlController;
+  late TextEditingController _brokerHostController;
   String _connectionStatus = '檢查中...';
   String _lastUpdate = '---';
   bool _isSaving = false;
   late bool _isAdminMode;
+  late String _deviceRole;
   bool _isUpdatingAdminMode = false;
 
-  // 下載進度相關
   Map<String, DownloadTask> _activeDownloads = {};
   Timer? _downloadMonitoringTimer;
 
   @override
   void initState() {
     super.initState();
-    _deviceIdController = TextEditingController(
-      text: widget.webSocketManager.deviceId,
-    );
-    _serverUrlController = TextEditingController(
-      text: widget.webSocketManager.serverUrl,
+    _deviceIdController = TextEditingController(text: widget.mqttManager.deviceId);
+    _brokerHostController = TextEditingController(
+      text: widget.mqttManager.brokerHost,
     );
     _isAdminMode = widget.isAdminMode;
+    _deviceRole = widget.deviceRole;
     _updateConnectionStatus();
     _startStatusMonitoring();
     _startDownloadMonitoring();
   }
 
-  /// 開始監聽下載進度
   void _startDownloadMonitoring() {
-    // 定期檢查下載任務
     _downloadMonitoringTimer = Timer.periodic(
       const Duration(milliseconds: 500),
       (timer) {
@@ -73,7 +71,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
           timer.cancel();
           return;
         }
-
         final activeDownloads = widget.downloadManager.getActiveDownloads();
         setState(() {
           _activeDownloads = {
@@ -84,24 +81,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  /// 更新連接狀態
   void _updateConnectionStatus() {
     setState(() {
-      final isConnected = widget.webSocketManager.isConnected;
-      final isRegistered = widget.webSocketManager.isRegistered;
-
-      if (!isConnected) {
-        _connectionStatus = '❌ 未連接';
-      } else if (!isRegistered) {
-        _connectionStatus = '⚠️ 已連接，但設備註冊失敗';
-      } else {
-        _connectionStatus = '✅ 已連接並已註冊';
-      }
+      _connectionStatus = widget.mqttManager.isConnected
+          ? '✅ MQTT 已連接'
+          : '❌ MQTT 未連接';
       _lastUpdate = DateTime.now().toString().substring(0, 19);
     });
   }
 
-  /// 開始狀態監控
   void _startStatusMonitoring() {
     Future.doWhile(() async {
       await Future.delayed(const Duration(seconds: 2));
@@ -115,14 +103,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final isConnected = widget.webSocketManager.isConnected;
-    final isRegistered = widget.webSocketManager.isRegistered;
-    final IconData connectionIcon = !isConnected
-        ? Icons.cloud_off
-        : (isRegistered ? Icons.cloud_done : Icons.report_problem);
-    final Color connectionColor = !isConnected
-        ? Colors.red
-        : (isRegistered ? Colors.green : Colors.orange);
+    final isConnected = widget.mqttManager.isConnected;
+    final connectionIcon = isConnected ? Icons.cloud_done : Icons.cloud_off;
+    final connectionColor = isConnected ? Colors.green : Colors.red;
 
     return Scaffold(
       appBar: AppBar(
@@ -137,7 +120,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // 設備設定
             _buildSectionTitle('設備設定'),
             const SizedBox(height: 16),
             _buildTextField(
@@ -148,17 +130,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             const SizedBox(height: 16),
             _buildTextField(
-              controller: _serverUrlController,
-              label: '伺服器位址',
-              hint: '例如: ws://your-server.com',
-              icon: Icons.cloud,
+              controller: _brokerHostController,
+              label: 'MQTT Broker 位址',
+              hint: '例如: 10.0.2.2 或 192.168.x.x',
+              icon: Icons.hub,
             ),
+            const SizedBox(height: 16),
+            _buildDeviceRoleSelector(),
             const SizedBox(height: 24),
-
             _buildAdminModeTile(),
             const SizedBox(height: 24),
-
-            // 儲存按鈕
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
@@ -173,23 +154,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 label: Text(_isSaving ? '儲存中...' : '儲存設定'),
                 style: ElevatedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 16),
-                  textStyle: const TextStyle(fontSize: 16),
                 ),
               ),
             ),
-
             const SizedBox(height: 32),
             const Divider(),
             const SizedBox(height: 32),
-
-            // 通訊狀況
-            _buildSectionTitle('通訊狀況'),
+            _buildSectionTitle('通訊狀況 (MQTT)'),
             const SizedBox(height: 16),
             _buildStatusCard(
-              title: '連線狀態',
+              title: 'MQTT 連線',
               value: _connectionStatus,
               icon: connectionIcon,
               color: connectionColor,
+            ),
+            const SizedBox(height: 12),
+            _buildStatusCard(
+              title: 'Broker',
+              value: '${widget.mqttManager.brokerHost}:${AppConfig.mqttBrokerPort}',
+              icon: Icons.dns,
+              color: Colors.blue,
             ),
             const SizedBox(height: 12),
             _buildStatusCard(
@@ -205,73 +189,37 @@ class _SettingsScreenState extends State<SettingsScreen> {
               icon: Icons.play_circle,
               color: Colors.orange,
             ),
-            const SizedBox(height: 12),
-            _buildStatusCard(
-              title: '播放隊列',
-              value: '${widget.playbackManager.queueLength} 個廣告',
-              icon: Icons.queue_music,
-              color: Colors.purple,
-            ),
-            if (widget.playbackManager.playbackMode ==
-                PlaybackMode.campaign) ...[
-              const SizedBox(height: 12),
-              _buildStatusCard(
-                title: '活動播放模式',
-                value: widget.playbackManager.activeCampaignId != null
-                    ? '活動 ID: ${widget.playbackManager.activeCampaignId}'
-                    : '活動播放中',
-                icon: Icons.campaign,
-                color: Colors.purpleAccent,
-              ),
-            ],
-
-            // GPS 位置確認狀態
             if (widget.locationService != null) ...[
               const SizedBox(height: 12),
               _buildStatusCard(
                 title: 'GPS 位置狀態',
                 value: widget.locationService!.getLocationAckStatus(),
-                icon: widget.locationService!.isLocationAcknowledged
-                    ? Icons.location_on
-                    : Icons.location_off,
-                color: widget.locationService!.isLocationAcknowledged
-                    ? Colors.green
-                    : Colors.orange,
+                icon: Icons.location_on,
+                color: Colors.green,
               ),
               const SizedBox(height: 12),
               _buildStatusCard(
-                title: '位置統計',
-                value:
-                    '已發送: ${widget.locationService!.sentCount} | '
-                    '已確認: ${widget.locationService!.ackCount}',
+                title: '位置上報次數',
+                value: '${widget.locationService!.sentCount}',
                 icon: Icons.analytics,
                 color: Colors.blue,
               ),
             ],
-
             const SizedBox(height: 32),
             const Divider(),
             const SizedBox(height: 32),
-
-            // 下載進度
             _buildSectionTitle('下載進度'),
             const SizedBox(height: 16),
             _buildDownloadProgressSection(),
-
             const SizedBox(height: 32),
             const Divider(),
             const SizedBox(height: 32),
-
-            // 播放列表
             _buildSectionTitle('播放列表'),
             const SizedBox(height: 16),
             _buildPlaylistSection(),
-
             const SizedBox(height: 32),
             const Divider(),
             const SizedBox(height: 32),
-
-            // 操作按鈕
             _buildSectionTitle('操作'),
             const SizedBox(height: 16),
             _buildActionButton(
@@ -281,24 +229,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             const SizedBox(height: 12),
             _buildActionButton(
-              label: '重新連接',
+              label: '重新連接 MQTT',
               icon: Icons.refresh,
               onPressed: _reconnect,
             ),
-            const SizedBox(height: 12),
-            _buildActionButton(
-              label: '清空播放隊列',
-              icon: Icons.clear_all,
-              onPressed: _clearQueue,
-              color: Colors.orange,
-            ),
-
             const SizedBox(height: 32),
-
-            // 版本資訊
             Center(
               child: Text(
-                'Taxi App v1.0.0',
+                'Taxi App v2.0.0 (MQTT)',
                 style: TextStyle(color: Colors.grey[600], fontSize: 12),
               ),
             ),
@@ -308,7 +246,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  /// 建立區段標題
+  Widget _buildDeviceRoleSelector() {
+    return InputDecorator(
+      decoration: const InputDecoration(
+        labelText: '設備角色',
+        border: OutlineInputBorder(),
+        prefixIcon: Icon(Icons.tv),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String>(
+          value: _deviceRole,
+          isExpanded: true,
+          items: const [
+            DropdownMenuItem(value: 'SCREEN_A', child: Text('SCREEN_A — 廣告屏（跑馬燈）')),
+            DropdownMenuItem(value: 'SCREEN_B', child: Text('SCREEN_B — 互動屏（QR / 警報）')),
+          ],
+          onChanged: (value) {
+            if (value != null) setState(() => _deviceRole = value);
+          },
+        ),
+      ),
+    );
+  }
+
   Widget _buildSectionTitle(String title) {
     return Text(
       title,
@@ -316,7 +276,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  /// 建立文字輸入框
   Widget _buildTextField({
     required TextEditingController controller,
     required String label,
@@ -334,7 +293,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  /// 建立狀態卡片
   Widget _buildStatusCard({
     required String title,
     required String value,
@@ -356,17 +314,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  title,
-                  style: TextStyle(fontSize: 14, color: Colors.grey[600]),
-                ),
+                Text(title, style: TextStyle(fontSize: 14, color: Colors.grey[600])),
                 const SizedBox(height: 4),
                 Text(
                   value,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                 ),
               ],
             ),
@@ -384,12 +336,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
         border: Border.all(color: Colors.blue.withOpacity(0.3)),
       ),
       child: SwitchListTile(
-        title: const Text(
-          '管理員模式',
-          style: TextStyle(fontWeight: FontWeight.bold),
-        ),
+        title: const Text('管理員模式', style: TextStyle(fontWeight: FontWeight.bold)),
         subtitle: Text(
-          '開啟後於播放畫面顯示調試資訊（GPS、播放來源等）',
+          '開啟後於播放畫面顯示調試資訊',
           style: TextStyle(color: Colors.grey[600]),
         ),
         value: _isAdminMode,
@@ -402,7 +351,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  /// 建立操作按鈕
   Widget _buildActionButton({
     required String label,
     required IconData icon,
@@ -423,7 +371,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  /// 獲取播放狀態文字
   String _getPlaybackStateText() {
     switch (widget.playbackManager.state) {
       case PlaybackState.idle:
@@ -439,89 +386,59 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  /// 儲存設定
   Future<void> _saveSettings() async {
-    setState(() {
-      _isSaving = true;
-    });
-
+    setState(() => _isSaving = true);
     try {
       final newDeviceId = _deviceIdController.text.trim();
+      final newBrokerHost = _brokerHostController.text.trim();
 
-      if (newDeviceId.isEmpty) {
-        _showMessage('設備 ID 不能為空');
-        setState(() {
-          _isSaving = false;
-        });
+      if (newDeviceId.isEmpty || newBrokerHost.isEmpty) {
+        _showMessage('設備 ID 與 Broker 位址不可為空');
         return;
       }
 
-      // 儲存到本地
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(AppConfig.deviceIdKey, newDeviceId);
+      await prefs.setString(AppConfig.mqttBrokerHostKey, newBrokerHost);
+      await widget.onDeviceRoleChanged(_deviceRole);
 
-      // 更新 WebSocket 管理器
-      widget.webSocketManager.updateDeviceId(newDeviceId);
+      await widget.mqttManager.updateBrokerHost(newBrokerHost);
+      await widget.mqttManager.updateDeviceId(newDeviceId);
 
       _showMessage('設定已儲存');
-      print('✅ 設定已儲存: $newDeviceId');
     } catch (e) {
       _showMessage('儲存失敗: $e');
-      print('❌ 儲存設定失敗: $e');
     } finally {
-      setState(() {
-        _isSaving = false;
-      });
+      if (mounted) setState(() => _isSaving = false);
     }
   }
 
-  /// 測試播放
   Future<void> _testPlayDefaultVideo() async {
     await widget.playbackManager.startAutoPlay();
     _showMessage('開始播放本地影片');
   }
 
-  /// 重新連接
   void _reconnect() {
-    widget.webSocketManager.disconnect();
+    widget.mqttManager.disconnect();
     Future.delayed(const Duration(seconds: 1), () {
-      widget.webSocketManager.connect();
-      _showMessage('正在重新連接...');
+      widget.mqttManager.connect();
+      _showMessage('正在重新連接 MQTT...');
     });
   }
 
   Future<void> _handleAdminModeChanged(bool value) async {
-    setState(() {
-      _isUpdatingAdminMode = true;
-    });
+    setState(() => _isUpdatingAdminMode = true);
     try {
       await widget.onAdminModeChanged(value);
-      setState(() {
-        _isAdminMode = value;
-      });
-    } catch (e) {
-      _showMessage('切換管理員模式失敗: $e');
+      setState(() => _isAdminMode = value);
     } finally {
-      if (mounted) {
-        setState(() {
-          _isUpdatingAdminMode = false;
-        });
-      }
+      if (mounted) setState(() => _isUpdatingAdminMode = false);
     }
   }
 
-  /// 清空播放隊列
-  Future<void> _clearQueue() async {
-    await widget.playbackManager.startAutoPlay();
-    _showMessage('播放隊列已清空，重新開始播放');
-  }
-
-  /// 建立播放列表區段
   Widget _buildPlaylistSection() {
     final playlist = widget.playbackManager.getFullPlaylist();
-    final systemPlaylist = playlist
-        .where((item) => !item.isLocalVideo)
-        .toList();
+    final systemPlaylist = playlist.where((item) => !item.isLocalVideo).toList();
     final localPlaylist = playlist.where((item) => item.isLocalVideo).toList();
 
     return Column(
@@ -550,10 +467,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          title,
-          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-        ),
+        Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
         const SizedBox(height: 8),
         if (items.isEmpty)
           _buildEmptyPlaylistCard(emptyHint)
@@ -563,10 +477,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             physics: const NeverScrollableScrollPhysics(),
             itemCount: items.length,
             separatorBuilder: (_, __) => const SizedBox(height: 8),
-            itemBuilder: (context, index) {
-              final item = items[index];
-              return _buildPlaylistItem(item);
-            },
+            itemBuilder: (context, index) => _buildPlaylistItem(items[index]),
           ),
       ],
     );
@@ -580,90 +491,52 @@ class _SettingsScreenState extends State<SettingsScreen> {
         color: Colors.grey.withOpacity(0.1),
         borderRadius: BorderRadius.circular(12),
       ),
-      child: Text(
-        hint,
-        style: const TextStyle(color: Colors.grey),
-        textAlign: TextAlign.center,
-      ),
+      child: Text(hint, style: const TextStyle(color: Colors.grey), textAlign: TextAlign.center),
     );
   }
 
-  /// 建立播放列表項目
   Widget _buildPlaylistItem(PlaybackInfo item) {
     return Card(
-      margin: const EdgeInsets.only(bottom: 8),
       child: ListTile(
         leading: Icon(
-          item.isCurrentPlaying
-              ? Icons.play_circle_filled
-              : item.isLocalVideo
-              ? Icons.video_library
-              : Icons.cloud_download,
+          item.isCurrentPlaying ? Icons.play_circle_filled : Icons.video_library,
           color: item.isCurrentPlaying ? Colors.green : Colors.blue,
         ),
-        title: Text(
-          item.title,
-          style: TextStyle(
-            fontWeight: item.isCurrentPlaying
-                ? FontWeight.bold
-                : FontWeight.normal,
-            color: item.isCurrentPlaying ? Colors.green : Colors.black,
-          ),
-        ),
+        title: Text(item.title),
         subtitle: Text(item.filename, style: const TextStyle(fontSize: 12)),
         trailing: item.isLocalVideo
             ? IconButton(
                 icon: const Icon(Icons.delete, color: Colors.red),
                 onPressed: () => _confirmDeleteVideo(item),
-                tooltip: '刪除影片',
               )
             : null,
       ),
     );
   }
 
-  /// 確認刪除影片
   Future<void> _confirmDeleteVideo(PlaybackInfo item) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('確認刪除'),
-        content: Text('確定要刪除影片 "${item.filename}" 嗎？\n\n此操作無法復原。'),
+        content: Text('確定要刪除 "${item.filename}" 嗎？'),
         actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('取消')),
           TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('取消'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(true),
+            onPressed: () => Navigator.pop(context, true),
             style: TextButton.styleFrom(foregroundColor: Colors.red),
             child: const Text('刪除'),
           ),
         ],
       ),
     );
-
     if (confirmed == true) {
       final success = await widget.playbackManager.deleteVideo(item.filename);
-      if (success) {
-        _showMessage('已刪除影片: ${item.filename}');
-        setState(() {}); // 刷新界面
-      } else {
-        _showMessage('刪除失敗');
-      }
+      _showMessage(success ? '已刪除' : '刪除失敗');
+      if (mounted) setState(() {});
     }
   }
 
-  /// 顯示訊息
-  void _showMessage(String message) {
-    if (!mounted) return;
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), duration: const Duration(seconds: 2)),
-    );
-  }
-
-  /// 建立下載進度區段
   Widget _buildDownloadProgressSection() {
     if (_activeDownloads.isEmpty) {
       return Container(
@@ -689,111 +562,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
           decoration: BoxDecoration(
             color: Colors.blue.withOpacity(0.1),
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.blue.withOpacity(0.3)),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                children: [
-                  const Icon(Icons.download, color: Colors.blue, size: 24),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          task.downloadInfo.filename,
-                          style: const TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          '廣告 ID: ${task.advertisementId}',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey[600],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 6,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.blue,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Text(
-                      '${task.progress}%',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              LinearProgressIndicator(
-                value: task.progress / 100,
-                backgroundColor: Colors.grey.withOpacity(0.3),
-                valueColor: const AlwaysStoppedAnimation<Color>(Colors.blue),
-                minHeight: 8,
-              ),
+              Text(task.downloadInfo.filename, style: const TextStyle(fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    '分片: ${task.downloadedChunks.length}/${task.totalChunks}',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey[700],
-                    ),
-                  ),
-                  Text(
-                    '狀態: ${_getDownloadStatusText(task.status)}',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: _getDownloadStatusColor(task.status),
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ],
-              ),
-              if (task.errorMessage != null) ...[
-                const SizedBox(height: 8),
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Colors.red.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.error, color: Colors.red, size: 16),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          task.errorMessage!,
-                          style: const TextStyle(
-                            fontSize: 12,
-                            color: Colors.red,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
+              LinearProgressIndicator(value: task.progress / 100),
+              Text('${task.progress}%'),
             ],
           ),
         );
@@ -801,43 +577,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  /// 獲取下載狀態文字
-  String _getDownloadStatusText(DownloadStatus status) {
-    switch (status) {
-      case DownloadStatus.pending:
-        return '等待中';
-      case DownloadStatus.downloading:
-        return '下載中';
-      case DownloadStatus.completed:
-        return '已完成';
-      case DownloadStatus.failed:
-        return '失敗';
-      case DownloadStatus.paused:
-        return '已暫停';
-    }
-  }
-
-  /// 獲取下載狀態顏色
-  Color _getDownloadStatusColor(DownloadStatus status) {
-    switch (status) {
-      case DownloadStatus.pending:
-        return Colors.grey;
-      case DownloadStatus.downloading:
-        return Colors.blue;
-      case DownloadStatus.completed:
-        return Colors.green;
-      case DownloadStatus.failed:
-        return Colors.red;
-      case DownloadStatus.paused:
-        return Colors.orange;
-    }
+  void _showMessage(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), duration: const Duration(seconds: 2)),
+    );
   }
 
   @override
   void dispose() {
     _downloadMonitoringTimer?.cancel();
     _deviceIdController.dispose();
-    _serverUrlController.dispose();
+    _brokerHostController.dispose();
     super.dispose();
   }
 }

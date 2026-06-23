@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
+import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'dart:convert';
@@ -100,11 +101,11 @@ class DownloadManager {
   }
 
   /// 開始下載影片
-  /// 開始下載影片
   Future<bool> startDownload({
     required String advertisementId,
+    String? expectedMd5,
     Function(DownloadTask)? onProgress,
-    Function()? onPlaybackCheck, // 回調函數，用於檢查是否可以下載（播放中不能下載）
+    Function()? onPlaybackCheck,
   }) async {
     // 檢查是否已經在下載 (這個檢查仍然需要)
     if (_tasks.containsKey(advertisementId) &&
@@ -156,29 +157,39 @@ class DownloadManager {
         );
 
         if (validationResult.isValid) {
-          print('✅ 檔案已存在且驗證通過: ${downloadInfo.filename}');
-          print(
-            '   檔案大小: ${validationResult.actualFileSize} bytes (預期: ${downloadInfo.fileSize} bytes)',
-          );
-          print('   格式驗證: ${validationResult.formatValid ? "通過" : "失敗"}');
-
-          // 🔽🔽🔽 修改點 C: 檔案已存在，立即通知 onProgress 🔽🔽🔽
-          // 建立一個 "已完成" 的任務
-          final completedTask = DownloadTask(
-            advertisementId: advertisementId,
-            downloadInfo: downloadInfo,
-            status: DownloadStatus.completed,
-            progress: 100,
-            outputFile: file,
-          );
-
-          // 使用 scheduleMicrotask 確保此通知在當前函數返回後才非同步發出
-          scheduleMicrotask(() {
-            _notifyProgress(completedTask);
-          });
-
-          return true; // 表示任務已處理 (或已存在)
-          // 🔼🔼🔼 修改點 C: 結束 🔼🔼🔼
+          // MD5 校驗（若後端有提供）
+          if (expectedMd5 != null && expectedMd5.isNotEmpty) {
+            final md5Ok = await verifyFileMd5(
+              downloadInfo.filename,
+              expectedMd5: expectedMd5,
+            );
+            if (!md5Ok) {
+              print('⚠️ 既有檔案 MD5 不符，重新下載');
+              await file.delete();
+            } else {
+              print('✅ 檔案已存在且 MD5 驗證通過: ${downloadInfo.filename}');
+              final completedTask = DownloadTask(
+                advertisementId: advertisementId,
+                downloadInfo: downloadInfo,
+                status: DownloadStatus.completed,
+                progress: 100,
+                outputFile: file,
+              );
+              scheduleMicrotask(() => _notifyProgress(completedTask));
+              return true;
+            }
+          } else {
+            print('✅ 檔案已存在且驗證通過: ${downloadInfo.filename}');
+            final completedTask = DownloadTask(
+              advertisementId: advertisementId,
+              downloadInfo: downloadInfo,
+              status: DownloadStatus.completed,
+              progress: 100,
+              outputFile: file,
+            );
+            scheduleMicrotask(() => _notifyProgress(completedTask));
+            return true;
+          }
         } else {
           // 驗證失敗，刪除檔案並重新下載
           print('⚠️ 檔案驗證失敗，重新下載: ${downloadInfo.filename}');
@@ -202,7 +213,7 @@ class DownloadManager {
       _notifyProgress(task); // 通知「正在下載」
 
       // 開始背景下載
-      _downloadInBackground(task);
+      _downloadInBackground(task, expectedMd5: expectedMd5);
 
       return true;
     } catch (e) {
@@ -212,7 +223,10 @@ class DownloadManager {
   }
 
   /// 背景下載
-  Future<void> _downloadInBackground(DownloadTask task) async {
+  Future<void> _downloadInBackground(
+    DownloadTask task, {
+    String? expectedMd5,
+  }) async {
     final downloadInfo = task.downloadInfo;
     final advertisementId = task.advertisementId;
 
@@ -281,19 +295,28 @@ class DownloadManager {
       );
 
       if (!validationResult.isValid) {
-        // 驗證失敗，刪除檔案並標記為失敗
         task.status = DownloadStatus.failed;
         task.errorMessage = validationResult.errorMessage;
         _notifyProgress(task);
-
-        if (await file.exists()) {
-          await file.delete();
-          print('❌ 驗證失敗，已刪除檔案: ${downloadInfo.filename}');
-          print('   錯誤: ${validationResult.errorMessage}');
-        }
+        if (await file.exists()) await file.delete();
         return;
       }
-      // 🔼🔼🔼 驗證結束 🔼🔼🔼
+
+      // MD5 完整性校驗
+      if (expectedMd5 != null && expectedMd5.isNotEmpty) {
+        final md5Ok = await verifyFileMd5(
+          downloadInfo.filename,
+          expectedMd5: expectedMd5,
+        );
+        if (!md5Ok) {
+          task.status = DownloadStatus.failed;
+          task.errorMessage = 'MD5_MISMATCH';
+          _notifyProgress(task);
+          await file.delete();
+          print('❌ MD5 校驗失敗，已刪除: ${downloadInfo.filename}');
+          return;
+        }
+      }
 
       task.status = DownloadStatus.completed;
       task.progress = 100;
@@ -569,6 +592,51 @@ class DownloadManager {
       }
     } catch (e) {
       print('❌ 驗證影片格式時發生錯誤: $e');
+      return false;
+    }
+  }
+
+  /// 計算並驗證檔案 MD5
+  Future<bool> verifyFileMd5(
+    String filename, {
+    required String expectedMd5,
+  }) async {
+    try {
+      final path = await _getVideoPath(filename);
+      final file = File(path);
+      if (!await file.exists()) return false;
+
+      final digest = await computeFileMd5(file);
+      final ok = digest.toLowerCase() == expectedMd5.toLowerCase();
+      if (!ok) {
+        print('❌ MD5 不符: 本地=$digest, 期望=$expectedMd5');
+      }
+      return ok;
+    } catch (e) {
+      print('❌ MD5 驗證錯誤: $e');
+      return false;
+    }
+  }
+
+  /// 計算檔案 MD5
+  Future<String> computeFileMd5(File file) async {
+    final bytes = await file.readAsBytes();
+    return md5.convert(bytes).toString();
+  }
+
+  /// 刪除指定影片檔案
+  Future<bool> deleteVideoFile(String filename) async {
+    try {
+      final path = await _getVideoPath(filename);
+      final file = File(path);
+      if (await file.exists()) {
+        await file.delete();
+        print('🗑️ 已刪除影片: $filename');
+        return true;
+      }
+      return false;
+    } catch (e) {
+      print('❌ 刪除影片失敗: $e');
       return false;
     }
   }

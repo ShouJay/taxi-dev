@@ -4,25 +4,32 @@ import 'package:video_player/video_player.dart';
 import '../managers/playback_manager.dart';
 import '../services/download_manager.dart';
 import '../config/app_config.dart';
+import '../models/shadow_playlist.dart';
 
 /// 主畫面 - 影片播放
 class MainScreen extends StatefulWidget {
   final PlaybackManager playbackManager;
   final DownloadManager downloadManager;
   final bool isAdminMode;
+  final String deviceRole;
+  final EmergencyState emergencyState;
   final Position? latestPosition;
   final DateTime? lastLocationSentTime;
+  final bool mqttConnected;
   final VoidCallback onSettingsRequested;
 
   const MainScreen({
-    Key? key,
+    super.key,
     required this.playbackManager,
     required this.downloadManager,
     required this.isAdminMode,
+    required this.emergencyState,
+    this.deviceRole = 'SCREEN_A',
     this.latestPosition,
     this.lastLocationSentTime,
+    this.mqttConnected = false,
     required this.onSettingsRequested,
-  }) : super(key: key);
+  });
 
   @override
   State<MainScreen> createState() => _MainScreenState();
@@ -72,6 +79,17 @@ class _MainScreenState extends State<MainScreen> {
           children: [
             // 影片播放器或提示畫面
             Center(child: _buildContent()),
+
+            // SCREEN_A：警報跑馬燈（不中斷廣告）
+            if (widget.deviceRole == 'SCREEN_A' &&
+                widget.emergencyState.isAlarmActive &&
+                widget.emergencyState.marqueeText.isNotEmpty)
+              _buildEmergencyMarquee(),
+
+            // SCREEN_B：QR 掃描統計（正常模式）
+            if (widget.deviceRole == 'SCREEN_B' &&
+                !widget.emergencyState.isAlarmActive)
+              _buildQrStatsOverlay(),
 
             // 管理員模式資訊疊層
             if (widget.isAdminMode &&
@@ -176,6 +194,55 @@ class _MainScreenState extends State<MainScreen> {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  /// SCREEN_A 警報跑馬燈
+  Widget _buildEmergencyMarquee() {
+    return Positioned(
+      top: 0,
+      left: 0,
+      right: 0,
+      child: Container(
+        color: Colors.red.withOpacity(0.9),
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+        child: Text(
+          widget.emergencyState.marqueeText,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+          ),
+          textAlign: TextAlign.center,
+        ),
+      ),
+    );
+  }
+
+  /// SCREEN_B QR 掃描統計
+  Widget _buildQrStatsOverlay() {
+    return Positioned(
+      bottom: 40,
+      right: 20,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        decoration: BoxDecoration(
+          color: Colors.black.withOpacity(0.75),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.white24),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.qr_code_scanner, color: Colors.white, size: 22),
+            const SizedBox(width: 8),
+            Text(
+              '掃描: ${widget.emergencyState.qrScanCount}',
+              style: const TextStyle(color: Colors.white, fontSize: 16),
+            ),
+          ],
         ),
       ),
     );
@@ -383,6 +450,11 @@ class _MainScreenState extends State<MainScreen> {
             style: styleBase,
           ),
           Text('最後發送: $sentTimeText', style: styleBase),
+          Text(
+            'MQTT: ${widget.mqttConnected ? "已連接" : "未連接"}',
+            style: styleBase,
+          ),
+          Text('角色: ${widget.deviceRole}', style: styleBase),
         ],
       ),
     );
@@ -630,8 +702,12 @@ class _MainScreenState extends State<MainScreen> {
       return '本地循環播放';
     }
 
-    if (item.trigger == 'http_heartbeat') {
-      return '後端推播';
+    if (item.trigger == 'campaign') {
+      return 'MQTT 活動播放';
+    }
+
+    if (item.trigger == 'emergency') {
+      return '緊急警報';
     }
 
     return '本地循環播放';

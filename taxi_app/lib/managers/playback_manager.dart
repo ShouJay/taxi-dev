@@ -4,7 +4,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:video_player/video_player.dart';
 import '../config/app_config.dart';
 import '../services/download_manager.dart';
-import '../services/websocket_manager.dart';
 
 /// 播放項目
 class PlaybackItem {
@@ -52,9 +51,7 @@ class PlaybackInfo {
 
 /// 播放管理器
 class PlaybackManager {
-  // 依賴服務
   final DownloadManager downloadManager;
-  final WebSocketManager webSocketManager;
 
   // 當前播放控制器
   VideoPlayerController? _currentController;
@@ -108,7 +105,6 @@ class PlaybackManager {
 
   PlaybackManager({
     required this.downloadManager,
-    required this.webSocketManager,
   });
 
   // Getters

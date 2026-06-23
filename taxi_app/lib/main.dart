@@ -3,34 +3,30 @@ import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'config/app_config.dart';
-import 'services/websocket_manager.dart';
+import 'services/mqtt_manager.dart';
+import 'services/shadow_sync_service.dart';
 import 'services/download_manager.dart';
 import 'services/location_service.dart';
 import 'managers/playback_manager.dart';
+import 'models/shadow_playlist.dart';
+import 'models/play_ad_command.dart';
 import 'screens/main_screen.dart';
 import 'screens/settings_screen.dart';
-import 'models/play_ad_command.dart';
-import 'models/download_info.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-
-  // 設置全螢幕模式
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-
-  // 允許直立與橫向，主畫面會依螢幕方向自動調整影片顯示
   SystemChrome.setPreferredOrientations(const [
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,
     DeviceOrientation.landscapeLeft,
     DeviceOrientation.landscapeRight,
   ]);
-
   runApp(const TaxiApp());
 }
 
 class TaxiApp extends StatelessWidget {
-  const TaxiApp({Key? key}) : super(key: key);
+  const TaxiApp({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -46,9 +42,8 @@ class TaxiApp extends StatelessWidget {
   }
 }
 
-/// App 容器 - 管理所有服務和狀態
 class AppContainer extends StatefulWidget {
-  const AppContainer({Key? key}) : super(key: key);
+  const AppContainer({super.key});
 
   @override
   State<AppContainer> createState() => _AppContainerState();
@@ -56,7 +51,8 @@ class AppContainer extends StatefulWidget {
 
 class _AppContainerState extends State<AppContainer>
     with WidgetsBindingObserver {
-  late WebSocketManager _webSocketManager;
+  late MqttManager _mqttManager;
+  late ShadowSyncService _shadowSync;
   late DownloadManager _downloadManager;
   late PlaybackManager _playbackManager;
   late LocationService _locationService;
@@ -64,8 +60,11 @@ class _AppContainerState extends State<AppContainer>
   bool _showSettings = false;
   bool _isInitialized = false;
   bool _isAdminMode = false;
+  String _deviceRole = AppConfig.defaultDeviceRole;
   Position? _latestPosition;
   DateTime? _lastLocationSentTime;
+  EmergencyState _emergencyState = EmergencyState();
+  bool _wasInEmergencyPlayback = false;
 
   @override
   void initState() {
@@ -74,168 +73,152 @@ class _AppContainerState extends State<AppContainer>
     _initialize();
   }
 
-  /// 初始化應用
   Future<void> _initialize() async {
     try {
-      print('🚀 初始化應用...');
-
+      print('🚀 初始化 MQTT 車載 App v2.0.0...');
       final prefs = await SharedPreferences.getInstance();
 
-      // 1. 載入設備 ID
-      final deviceId = await _loadDeviceId(prefs);
-      print('📱 設備 ID: $deviceId');
+      final deviceId =
+          prefs.getString(AppConfig.deviceIdKey) ?? AppConfig.defaultDeviceId;
+      await prefs.setString(AppConfig.deviceIdKey, deviceId);
 
+      final brokerHost =
+          prefs.getString(AppConfig.mqttBrokerHostKey) ??
+          AppConfig.mqttBrokerHost;
       final adminMode = prefs.getBool(AppConfig.adminModeKey) ?? false;
+      _deviceRole =
+          prefs.getString(AppConfig.deviceRoleKey) ??
+          AppConfig.defaultDeviceRole;
 
-      // 2. 初始化管理器
-      _webSocketManager = WebSocketManager(
-        deviceId: deviceId,
-        serverUrl: AppConfig.wsUrl,
-      );
-
+      _mqttManager = MqttManager(deviceId: deviceId, brokerHost: brokerHost);
       _downloadManager = DownloadManager(baseUrl: AppConfig.apiBaseUrl);
-
-      _playbackManager = PlaybackManager(
+      _playbackManager = PlaybackManager(downloadManager: _downloadManager);
+      _shadowSync = ShadowSyncService(
+        mqttManager: _mqttManager,
         downloadManager: _downloadManager,
-        webSocketManager: _webSocketManager,
       );
+      _locationService = LocationService(mqttManager: _mqttManager);
 
-      // 初始化位置服務
-      _locationService = LocationService(webSocketManager: _webSocketManager);
-      _locationService.onLocationUpdate = (position) {
-        if (!mounted) return;
-        setState(() {
-          _latestPosition = position;
-          _lastLocationSentTime = _locationService.lastLocationSentTime;
-        });
-      };
-      _locationService.onLocationAcknowledged = (_) {
-        if (!mounted) return;
-        setState(() {});
-      };
+      _setupMqttHandlers();
+      _setupShadowHandlers();
+      _setupLocationCallbacks();
 
-      // 3. 設置 WebSocket 事件處理
-      _setupWebSocketHandlers();
-
-      // 4. 連接到伺服器
-      _webSocketManager.connect();
-
-      // 5. 啟動位置服務
+      await _mqttManager.connect();
       await _locationService.start();
-
-      // 6. 開始自動播放（優先預設影片，其次本地影片）
       await _playbackManager.startAutoPlay();
 
-      setState(() {
-        _isInitialized = true;
-        _isAdminMode = adminMode;
-        _latestPosition = _locationService.currentPosition;
-        _lastLocationSentTime = _locationService.lastLocationSentTime;
-      });
-
-      print('✅ 應用初始化完成');
+      if (mounted) {
+        setState(() {
+          _isInitialized = true;
+          _isAdminMode = adminMode;
+          _latestPosition = _locationService.currentPosition;
+          _lastLocationSentTime = _locationService.lastLocationSentTime;
+        });
+      }
+      print('✅ 初始化完成');
     } catch (e) {
       print('❌ 初始化失敗: $e');
     }
   }
 
-  /// 載入設備 ID
-  Future<String> _loadDeviceId(SharedPreferences prefs) async {
-    try {
-      final deviceId = prefs.getString(AppConfig.deviceIdKey);
-
-      if (deviceId != null && deviceId.isNotEmpty) {
-        return deviceId;
-      }
-
-      // 使用預設設備 ID
-      await prefs.setString(AppConfig.deviceIdKey, AppConfig.defaultDeviceId);
-      return AppConfig.defaultDeviceId;
-    } catch (e) {
-      print('❌ 載入設備 ID 失敗: $e');
-      return AppConfig.defaultDeviceId;
-    }
-  }
-
-  Future<void> _updateAdminMode(bool value) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(AppConfig.adminModeKey, value);
-    if (!mounted) return;
-    setState(() {
-      _isAdminMode = value;
-    });
-  }
-
-  /// 設置 WebSocket 事件處理
-  void _setupWebSocketHandlers() {
-    // 處理播放廣告命令
-    _webSocketManager.onPlayAdCommand = (command) {
-      _handlePlayAdCommand(command);
-    };
-
-    // 處理下載影片命令
-    _webSocketManager.onDownloadVideoCommand = (command) {
-      _handleDownloadVideoCommand(command);
-    };
-
-    // 處理連接事件
-    _webSocketManager.onConnected = () {
-      print('✅ WebSocket 已連接');
-      // 連線建立後立即補送一次最新位置
+  void _setupMqttHandlers() {
+    _mqttManager.onConnected = () {
       _locationService.sendCurrentLocation();
+      _shadowSync.publishReportedNow();
     };
 
-    _webSocketManager.onDisconnected = () {
-      print('❌ WebSocket 已斷開');
+    _mqttManager.onDesiredPlaylist = (desired) {
+      _shadowSync.handleDesired(desired);
     };
 
-    _webSocketManager.onStartCampaignPlayback =
-        (campaignId, playlistData) async {
-          await _handleStartCampaignPlayback(campaignId, playlistData);
-        };
+    _mqttManager.onEmergencyMessage = (state) {
+      _handleEmergencyState(state);
+    };
+  }
 
-    _webSocketManager.onRevertToLocalPlaylist = () async {
-      print('🏠 收到 [REVERT_TO_LOCAL] 指令');
+  void _setupShadowHandlers() {
+    _shadowSync.onCampaignReady = (campaignId, playlist) async {
+      await _playbackManager.startCampaignPlayback(
+        campaignId: campaignId,
+        playlist: playlist,
+      );
+    };
+
+    _shadowSync.onRevertToLocal = () async {
       await _playbackManager.revertToLocalPlayback();
     };
+
+    _shadowSync.onOverridePlay = (command) async {
+      await _handlePlayAdCommand(command);
+    };
   }
 
-  /// 處理播放廣告命令
-  Future<void> _handlePlayAdCommand(PlayAdCommand command) async {
-    print('🎬 處理播放廣告命令: ${command.advertisementName}');
-    print('   來源：後端推送');
-    print('   影片檔名: ${command.videoFilename}');
+  void _setupLocationCallbacks() {
+    _locationService.onLocationUpdate = (position) {
+      if (!mounted) return;
+      setState(() {
+        _latestPosition = position;
+        _lastLocationSentTime = _locationService.lastLocationSentTime;
+      });
+    };
+  }
 
-    // 檢查影片是否存在
-    final exists = await _downloadManager.isVideoExists(command.videoFilename);
-
-    if (!exists) {
-      print('⚠️ 影片不存在: ${command.videoFilename}');
-      print('   這是後端推送的播放命令，但本地沒有該影片');
-
-      // 如果後端沒有提供 advertisement_id，無法請求下載
-      if (command.advertisementId == 'unknown') {
-        print('⚠️ 後端未提供 advertisement_id，無法請求下載');
-        print('   提示：請確保後端在 play_ad 事件中包含 advertisement_id 字段');
-        print('   後端應發送格式：');
-        print('   {');
-        print('     "command": "PLAY_VIDEO",');
-        print('     "video_filename": "影片檔名",');
-        print('     "advertisement_id": "adv-xxx",  ← 必須提供');
-        print('     "advertisement_name": "廣告名稱",');
-        print('     "trigger": "location_based",');
-        print('     "timestamp": "2025-01-26T12:34:56"');
-        print('   }');
-        return;
+  Future<void> _handleEmergencyState(EmergencyState state) async {
+    if (state.type == 'stats_update') {
+      if (mounted) {
+        setState(() {
+          _emergencyState = EmergencyState(
+            isAlarmActive: _emergencyState.isAlarmActive,
+            marqueeText: _emergencyState.marqueeText,
+            emergencyVideo: _emergencyState.emergencyVideo,
+            qrScanCount: state.qrScanCount,
+          );
+        });
       }
-
-      print('📥 請求下載: ${command.advertisementId}');
-      _webSocketManager.sendDownloadRequest(command.advertisementId);
       return;
     }
 
-    // 影片存在，直接播放
-    print('✅ 影片已存在，加入播放隊列');
+    if (state.type != null &&
+        state.type != 'system_state' &&
+        state.type != 'system_state_update') {
+      return;
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _emergencyState = state;
+    });
+
+    if (_deviceRole == 'SCREEN_B') {
+      if (state.isAlarmActive) {
+        _wasInEmergencyPlayback = true;
+        final filename = state.emergencyVideo;
+        final exists = await _downloadManager.isVideoExists(filename);
+        if (exists) {
+          await _playbackManager.insertAd(
+            videoFilename: filename,
+            advertisementId: 'emergency-$filename',
+            advertisementName: '緊急警報',
+            trigger: 'emergency',
+            isOverride: true,
+          );
+        } else {
+          print('⚠️ 緊急影片未預載: $filename');
+        }
+      } else if (_wasInEmergencyPlayback) {
+        _wasInEmergencyPlayback = false;
+        await _playbackManager.revertToLocalPlayback();
+      }
+    }
+  }
+
+  Future<void> _handlePlayAdCommand(PlayAdCommand command) async {
+    final exists = await _downloadManager.isVideoExists(command.videoFilename);
+    if (!exists) {
+      print('⚠️ 影片不存在，等待 shadow 同步下載: ${command.videoFilename}');
+      return;
+    }
+
     await _playbackManager.insertAd(
       videoFilename: command.videoFilename,
       advertisementId: command.advertisementId,
@@ -246,151 +229,18 @@ class _AppContainerState extends State<AppContainer>
     );
   }
 
-  /// 處理下載影片命令
-  Future<void> _handleDownloadVideoCommand(DownloadVideoCommand command) async {
-    print('📥 處理下載影片命令: ${command.advertisementName}');
-
-    // 檢查影片是否已存在
-    final exists = await _downloadManager.isVideoExists(command.videoFilename);
-    if (exists) {
-      print('✅ 影片已存在: ${command.videoFilename}');
-
-      // 發送完成狀態
-      _webSocketManager.sendDownloadStatus(
-        advertisementId: command.advertisementId,
-        status: 'completed',
-        progress: 100,
-        downloadedChunks: List.generate(command.totalChunks, (i) => i),
-        totalChunks: command.totalChunks,
-      );
-      return;
-    }
-
-    // 檢查是否正在播放（播放中不能下載）
-    if (_playbackManager.state == PlaybackState.playing ||
-        _playbackManager.state == PlaybackState.loading) {
-      print('⏸️ 正在播放中，暫緩下載: ${command.advertisementId}');
-      // 暫緩下載，等待播放完成後再下載
-      // 這裡可以選擇：1. 拒絕下載 2. 加入下載隊列等待播放完成
-      // 目前選擇暫緩，提示用戶
-      return;
-    }
-
-    // 開始下載
-    final success = await _downloadManager.startDownload(
-      advertisementId: command.advertisementId,
-      onProgress: (task) async {
-        // 發送下載進度
-        _webSocketManager.sendDownloadStatus(
-          advertisementId: task.advertisementId,
-          status: task.status.value,
-          progress: task.progress,
-          downloadedChunks: task.downloadedChunks,
-          totalChunks: task.totalChunks,
-          errorMessage: task.errorMessage,
-        );
-
-        // 下載完成：僅更新本地循環列表，不插隊插播（新片納入本地輪播）
-        if (task.status == DownloadStatus.completed) {
-          print('✅ 下載完成: ${command.videoFilename}');
-          await _playbackManager.refreshLocalPlaylistAfterDownload();
-        }
-      },
-    );
-
-    if (!success) {
-      print('❌ 啟動下載失敗: ${command.advertisementId}');
-    }
+  Future<void> _updateAdminMode(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(AppConfig.adminModeKey, value);
+    if (!mounted) return;
+    setState(() => _isAdminMode = value);
   }
 
-  /// 處理活動播放命令
-  Future<void> _handleStartCampaignPlayback(
-    String campaignId,
-    List<dynamic> playlistData,
-  ) async {
-    print('🎬 收到 [START_CAMPAIGN_PLAYBACK] 指令，活動: $campaignId');
-
-    final playlist = playlistData
-        .map((item) => _parseCampaignPlaylistItem(campaignId, item))
-        .whereType<PlaybackItem>()
-        .toList();
-
-    await _validateAndStartCampaign(campaignId, playlist);
-  }
-
-  /// 將原始資料解析為 PlaybackItem
-  PlaybackItem? _parseCampaignPlaylistItem(String campaignId, dynamic rawItem) {
-    if (rawItem is! Map<String, dynamic>) {
-      print('⚠️ 無法解析活動播放項目: $rawItem');
-      return null;
-    }
-
-    final videoFilename =
-        rawItem['videoFilename'] as String? ??
-        rawItem['video_filename'] as String? ??
-        '';
-
-    if (videoFilename.isEmpty) {
-      print('⚠️ 活動播放項目缺少 videoFilename: $rawItem');
-      return null;
-    }
-
-    final advertisementId =
-        rawItem['advertisementId'] as String? ??
-        rawItem['advertisement_id'] as String? ??
-        'campaign-$campaignId-$videoFilename';
-
-    final advertisementName =
-        rawItem['advertisementName'] as String? ??
-        rawItem['advertisement_name'] as String? ??
-        videoFilename;
-
-    final trigger = rawItem['trigger'] as String? ?? 'campaign';
-
-    return PlaybackItem(
-      videoFilename: videoFilename,
-      advertisementId: advertisementId,
-      advertisementName: advertisementName,
-      trigger: trigger,
-      campaignId: campaignId,
-    );
-  }
-
-  /// 驗證活動播放列表並啟動播放
-  Future<void> _validateAndStartCampaign(
-    String campaignId,
-    List<PlaybackItem> playlist,
-  ) async {
-    if (playlist.isEmpty) {
-      print('⚠️ 活動 $campaignId 播放列表為空，不切換');
-      return;
-    }
-
-    for (var i = 0; i < playlist.length; i++) {
-      final item = playlist[i];
-      final exists = await _downloadManager.isVideoExists(item.videoFilename);
-      if (!exists) {
-        print('❌ 嚴重錯誤：影片 ${item.videoFilename} 未預先載入！');
-
-        _webSocketManager.sendPlaybackError(
-          error: '影片未預先載入',
-          campaignId: campaignId,
-          videoFilename: item.videoFilename,
-          advertisementId: item.advertisementId,
-          mode: 'campaign',
-          playlistIndex: i,
-          playlistLength: playlist.length,
-          trigger: item.trigger,
-        );
-        return;
-      }
-    }
-
-    print('✅ 驗證通過，所有影片均已預載。');
-    await _playbackManager.startCampaignPlayback(
-      campaignId: campaignId,
-      playlist: playlist,
-    );
+  Future<void> _updateDeviceRole(String role) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(AppConfig.deviceRoleKey, role);
+    if (!mounted) return;
+    setState(() => _deviceRole = role);
   }
 
   @override
@@ -412,51 +262,40 @@ class _AppContainerState extends State<AppContainer>
 
     return _showSettings
         ? SettingsScreen(
-            webSocketManager: _webSocketManager,
+            mqttManager: _mqttManager,
             playbackManager: _playbackManager,
             downloadManager: _downloadManager,
             locationService: _locationService,
             isAdminMode: _isAdminMode,
+            deviceRole: _deviceRole,
             onAdminModeChanged: _updateAdminMode,
-            onBack: () {
-              setState(() {
-                _showSettings = false;
-              });
-            },
+            onDeviceRoleChanged: _updateDeviceRole,
+            onBack: () => setState(() => _showSettings = false),
           )
         : MainScreen(
             playbackManager: _playbackManager,
             downloadManager: _downloadManager,
             isAdminMode: _isAdminMode,
+            deviceRole: _deviceRole,
+            emergencyState: _emergencyState,
             latestPosition: _latestPosition,
             lastLocationSentTime: _lastLocationSentTime,
-            onSettingsRequested: () {
-              setState(() {
-                _showSettings = true;
-              });
-            },
+            mqttConnected: _mqttManager.isConnected,
+            onSettingsRequested: () => setState(() => _showSettings = true),
           );
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // 處理應用生命週期變化
-    if (state == AppLifecycleState.paused) {
-      print('⏸️ 應用進入背景');
-      // 可以在這裡暫停某些操作
-    } else if (state == AppLifecycleState.resumed) {
-      print('▶️ 應用恢復前景');
-      // 重新連接 WebSocket（如果斷開）
-      if (!_webSocketManager.isConnected) {
-        _webSocketManager.connect();
-      }
+    if (state == AppLifecycleState.resumed && !_mqttManager.isConnected) {
+      _mqttManager.connect();
     }
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _webSocketManager.dispose();
+    _mqttManager.dispose();
     _downloadManager.dispose();
     _playbackManager.dispose();
     _locationService.dispose();
