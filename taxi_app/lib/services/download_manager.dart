@@ -214,6 +214,7 @@ class DownloadManager {
 
       // 開始背景下載
       _downloadInBackground(task, expectedMd5: expectedMd5);
+      print('✅ 下載完成: ${downloadInfo.filename}');
 
       return true;
     } catch (e) {
@@ -400,6 +401,12 @@ class DownloadManager {
 
     if (!await videoDir.exists()) {
       await videoDir.create(recursive: true);
+    }
+
+    // 💡 防呆：如果傳進來的名字忘記帶副檔名，自動補上 .mp4
+    String safeFilename = filename;
+    if (!safeFilename.contains('.')) {
+      safeFilename = '$safeFilename.mp4';
     }
 
     return '${videoDir.path}/$filename';

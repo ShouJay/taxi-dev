@@ -36,9 +36,10 @@ class ShadowSyncService {
   DesiredPlaylist? get currentDesired => _currentDesired;
 
   /// 處理後端下發的 desired 播放清單
+  /// 處理後端下發的 desired 播放清單
   Future<void> handleDesired(DesiredPlaylist desired) async {
     // 管理員指令優先處理
-    final cmdType = desired.commandType;
+    final cmdType = desired.commandType; // 註：若你的 desired 欄位無 commandType，請依你原本的方式抓取，如 desired.command?['type']
     if (cmdType == 'REVERT_TO_LOCAL_PLAYLIST') {
       print('🏠 收到 REVERT_TO_LOCAL 指令');
       _activeCampaignId = null;
@@ -52,17 +53,48 @@ class ShadowSyncService {
       return;
     }
 
-    // 若 desired 未變更，略過
-    if (_currentDesired?.updatedAt != null &&
-        _currentDesired!.updatedAt == desired.updatedAt &&
-        _currentDesired!.campaignId == desired.campaignId) {
+    // 💡 【核心優化：深層特徵 Diff 攔截防線】免用 toJson()
+    if (_currentDesired != null) {
+      final oldPlaylist = _currentDesired!;
+
+      // 1. 檢查活動 ID、更新時間以及影片數量是否完全一模一樣
+      bool isBasicEqual = oldPlaylist.campaignId == desired.campaignId &&
+          oldPlaylist.updatedAt == desired.updatedAt &&
+          oldPlaylist.videos.length == desired.videos.length;
+
+      // 2. 如果基礎屬性相同，進一步用迴圈對比裡面每一支影片的特徵（ID、Filename、MD5）
+      if (isBasicEqual) {
+        bool isVideosIdentical = true;
+        for (int i = 0; i < desired.videos.length; i++) {
+          if (oldPlaylist.videos[i].videoId != desired.videos[i].videoId ||
+              oldPlaylist.videos[i].videoFilename != desired.videos[i].videoFilename ||
+              oldPlaylist.videos[i].md5 != desired.videos[i].md5) {
+            isVideosIdentical = false;
+            break;
+          }
+        }
+
+        // 3. 全數吻合，代表這是一次因為 GPS 上報而收到的「完全重複無變更」清單，直接攔截！
+        if (isVideosIdentical) {
+          // print('🍃 收到內容完全相同的 desired 資料，攔截並維持現狀。');
+          return;
+        }
+      }
+    }
+
+    // 💡 【雙重防禦】如果上次是空清單，這次又是空清單，且目前已經是本地播放模式，就不用再重啟一次
+    if (desired.videos.isEmpty && _currentDesired?.videos.isEmpty == true && _activeCampaignId == null) {
+      print('📭 兩次 desired 皆為空且已處於本地播放，忽略不重複觸發。');
+      _currentDesired = desired;
       return;
     }
 
     print('📋 對齊 desired: campaign=${desired.campaignId}, videos=${desired.videos.length}');
+
     _currentDesired = desired;
     _errors.clear();
 
+    // 執行原本的垃圾回收與分片同步
     await _garbageCollect(desired);
     await _syncDownloads(desired);
 
@@ -234,10 +266,42 @@ class ShadowSyncService {
 
   /// LRU 垃圾回收：刪除不在 desired 清單中的歷史影片
   Future<void> _garbageCollect(DesiredPlaylist desired) async {
+
+    // 💡 防護一：如果後端下發的 desired 列表完全是空的，
+    // 代表這可能是個過渡狀態、指令或影子未就緒，此時盲目清空硬碟會導致狂撥本地空清單，直接略過。
+    if (desired.videos.isEmpty) {
+      print('⚠️ desired 影片列表為空，略過 LRU 垃圾回收以保護本地檔案。');
+      return;
+    }
+
     final keepFilenames = <String>{};
+
+    // 💡 防護二：在盤點前，強迫將所有 desired 影片的真實檔名解析出來，防止快取漏掉
     for (final video in desired.videos) {
-      final filename = video.videoFilename ?? _videoIdToFilename[video.videoId];
-      if (filename != null) keepFilenames.add(filename);
+      // 1. 如果 desired 裡面有帶檔名，直接保留
+      if (video.videoFilename != null && video.videoFilename!.isNotEmpty) {
+        keepFilenames.add(video.videoFilename!);
+        _videoIdToFilename[video.videoId] = video.videoFilename!; // 順便幫快取補血
+        continue;
+      }
+
+      // 2. 如果 desired 沒帶檔名，但快取有，保留
+      if (_videoIdToFilename.containsKey(video.videoId)) {
+        keepFilenames.add(_videoIdToFilename[video.videoId]!);
+        continue;
+      }
+
+      // 3. 雙重保險：如果快取也沒有，直接異步向 downloadManager 查後端 API 該廣告對應的 filename
+      try {
+        final info = await downloadManager.getDownloadInfo(video.videoId);
+        if (info != null && info.filename.isNotEmpty) {
+          print('🔍 LRU 盤點防禦：成功為 ${video.videoId} 解析出實體檔名 ${info.filename}');
+          keepFilenames.add(info.filename);
+          _videoIdToFilename[video.videoId] = info.filename; // 補進快取，防止時序錯位
+        }
+      } catch (e) {
+        print('⚠️ LRU 盤點解析檔名失敗: $e');
+      }
     }
 
     final localVideos = await downloadManager.getAllDownloadedVideos();
