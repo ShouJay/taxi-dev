@@ -3,14 +3,14 @@ import 'dart:io';
 /// 應用程式配置
 class AppConfig {
   // HTTP API（影片分片下載）
-  static const String baseUrl = 'https://lemon-rats-tell.loca.lt';
+  static const String baseUrl = 'https://huge-guests-teach.loca.lt';
 
   // 本地 Docker 開發（Android 模擬器請用 10.0.2.2）
   // static const String baseUrl = 'http://10.0.2.2:8080';
 
   // MQTT Broker（EMQX，預設 1883）
   static const String mqttBrokerHost = '0.tcp.jp.ngrok.io';
-  static const int mqttBrokerPort = 23773;
+  static const int mqttBrokerPort = 28806;
 
   // 實體機連本地 Docker 時改為主機 IP，例如：
   // static const String mqttBrokerHost = '192.168.0.249';

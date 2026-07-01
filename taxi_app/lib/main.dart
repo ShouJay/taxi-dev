@@ -151,6 +151,11 @@ class _AppContainerState extends State<AppContainer>
     _shadowSync.onOverridePlay = (command) async {
       await _handlePlayAdCommand(command);
     };
+
+    _shadowSync.onDownloadCompleted = () async {
+      print('🔔 收到下載完成通知，更新 PlaybackManager 播放清單');
+      await _playbackManager.refreshLocalPlaylistAfterDownload();
+    };
   }
 
   void _setupLocationCallbacks() {

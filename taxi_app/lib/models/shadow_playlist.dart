@@ -27,6 +27,15 @@ class DesiredVideo {
       videoFilename: json['video_filename'] as String?,
     );
   }
+
+  // 💡 新增這個 toJson 方法
+  Map<String, dynamic> toJson() => {
+    'video_id': videoId,
+    'url': url,
+    'md5': md5,
+    'file_size': fileSize,
+    'video_filename': videoFilename,
+  };
 }
 
 /// 後端下發的期望狀態（taxi/{id}/playlist/desired）
@@ -57,6 +66,14 @@ class DesiredPlaylist {
   }
 
   String? get commandType => command?['command'] as String?;
+
+  // 💡 新增這個 toJson 方法
+  Map<String, dynamic> toJson() => {
+    'campaign_id': campaignId,
+    'videos': videos.map((v) => v.toJson()).toList(),
+    'updated_at': updatedAt,
+    'command': command,
+  };
 }
 
 /// 本地影片庫存狀態

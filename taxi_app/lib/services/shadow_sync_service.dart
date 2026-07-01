@@ -27,6 +27,8 @@ class ShadowSyncService {
   Function(String campaignId, List<PlaybackItem> playlist)? onCampaignReady;
   Function()? onRevertToLocal;
   Function(PlayAdCommand)? onOverridePlay;
+  // 💡 新增：背景下載完成的回調，用來通知 main.dart 刷新播放清單
+  Function()? onDownloadCompleted;
 
   ShadowSyncService({
     required this.mqttManager,
@@ -35,11 +37,11 @@ class ShadowSyncService {
 
   DesiredPlaylist? get currentDesired => _currentDesired;
 
-  /// 處理後端下發的 desired 播放清單
-  /// 處理後端下發的 desired 播放清單
+
+  /// 處理後端下發的 desired 播放清單與指令
   Future<void> handleDesired(DesiredPlaylist desired) async {
-    // 管理員指令優先處理
-    final cmdType = desired.commandType; // 註：若你的 desired 欄位無 commandType，請依你原本的方式抓取，如 desired.command?['type']
+    final cmdType = desired.commandType;
+
     if (cmdType == 'REVERT_TO_LOCAL_PLAYLIST') {
       print('🏠 收到 REVERT_TO_LOCAL 指令');
       _activeCampaignId = null;
@@ -48,21 +50,26 @@ class ShadowSyncService {
       return;
     }
 
+    // 💡 1. 處理推播 (插播)
     if (cmdType == 'PLAY_VIDEO') {
       await _handleOverridePlay(desired);
       return;
     }
 
-    // 💡 【核心優化：深層特徵 Diff 攔截防線】免用 toJson()
+    // 💡 2. 處理獨立下載指令
+    if (cmdType == 'DOWNLOAD_VIDEO') {
+      await _handleDownloadCommand(desired);
+      return;
+    }
+
+    // 💡 【深層特徵 Diff 攔截防線】
     if (_currentDesired != null) {
       final oldPlaylist = _currentDesired!;
 
-      // 1. 檢查活動 ID、更新時間以及影片數量是否完全一模一樣
       bool isBasicEqual = oldPlaylist.campaignId == desired.campaignId &&
           oldPlaylist.updatedAt == desired.updatedAt &&
           oldPlaylist.videos.length == desired.videos.length;
 
-      // 2. 如果基礎屬性相同，進一步用迴圈對比裡面每一支影片的特徵（ID、Filename、MD5）
       if (isBasicEqual) {
         bool isVideosIdentical = true;
         for (int i = 0; i < desired.videos.length; i++) {
@@ -74,15 +81,13 @@ class ShadowSyncService {
           }
         }
 
-        // 3. 全數吻合，代表這是一次因為 GPS 上報而收到的「完全重複無變更」清單，直接攔截！
         if (isVideosIdentical) {
-          // print('🍃 收到內容完全相同的 desired 資料，攔截並維持現狀。');
           return;
         }
       }
     }
 
-    // 💡 【雙重防禦】如果上次是空清單，這次又是空清單，且目前已經是本地播放模式，就不用再重啟一次
+    // 💡 【雙重防禦】空清單攔截
     if (desired.videos.isEmpty && _currentDesired?.videos.isEmpty == true && _activeCampaignId == null) {
       print('📭 兩次 desired 皆為空且已處於本地播放，忽略不重複觸發。');
       _currentDesired = desired;
@@ -94,7 +99,6 @@ class ShadowSyncService {
     _currentDesired = desired;
     _errors.clear();
 
-    // 執行原本的垃圾回收與分片同步
     await _garbageCollect(desired);
     await _syncDownloads(desired);
 
@@ -109,6 +113,7 @@ class ShadowSyncService {
     await _publishReported();
   }
 
+  /// 💡 推播處理：嚴格檢查本地是否有檔案
   Future<void> _handleOverridePlay(DesiredPlaylist desired) async {
     final cmd = desired.command;
     if (cmd == null) return;
@@ -118,17 +123,9 @@ class ShadowSyncService {
     if (videoFilename.isEmpty) return;
 
     final exists = await downloadManager.isVideoExists(videoFilename);
-    if (!exists && advertisementId.isNotEmpty) {
-      await _downloadVideo(
-        DesiredVideo(
-          videoId: advertisementId,
-          url: '',
-          videoFilename: videoFilename,
-        ),
-      );
-    }
 
-    if (await downloadManager.isVideoExists(videoFilename)) {
+    if (exists) {
+      print('🚨 [推播] 本地檔案存在，立即觸發插播: $videoFilename');
       onOverridePlay?.call(
         PlayAdCommand(
           command: 'PLAY_VIDEO',
@@ -140,7 +137,72 @@ class ShadowSyncService {
           timestamp: DateTime.now(),
         ),
       );
+    } else {
+      print('❌ [推播失敗] 本地找不到檔案: $videoFilename，拒絕插播並上報錯誤');
+
+      _errors.clear();
+      _errors.add(
+        ReportedError(
+          videoId: advertisementId.isNotEmpty ? advertisementId : 'unknown',
+          code: 'FILE_NOT_FOUND',
+          message: 'Push play failed: video file [$videoFilename] does not exist locally.',
+        ),
+      );
     }
+
+    await _publishReported();
+  }
+
+  /// 💡 獨立下載指令處理：只下載，不打斷播放
+  Future<void> _handleDownloadCommand(DesiredPlaylist desired) async {
+    final cmd = desired.command;
+    if (cmd == null) return;
+
+    try {
+      final downloadCmd = DownloadVideoCommand.fromJson(cmd);
+      final filename = downloadCmd.videoFilename;
+      print('📥 [獨立下載] 開始下載任務: ${downloadCmd.advertisementName}, 檔名: $filename');
+
+      _videoIdToFilename[downloadCmd.advertisementId] = filename;
+
+      if (await downloadManager.isVideoExists(filename)) {
+        print('✅ [獨立下載] 影片已存在本地，忽略下載: $filename');
+        _downloadProgress[downloadCmd.advertisementId] = 100;
+        onDownloadCompleted?.call();
+        await _publishReported();
+        return;
+      }
+
+      _downloadProgress[downloadCmd.advertisementId] = 0;
+      await _publishReported();
+
+      final success = await downloadManager.startDownload(
+        advertisementId: downloadCmd.advertisementId,
+        expectedMd5: null,
+        onProgress: (task) {
+          _downloadProgress[downloadCmd.advertisementId] = task.progress;
+
+          if (task.status == DownloadStatus.completed) {
+            print('🎉 [獨立下載] 影片下載完成！通知系統加入本地清單: $filename');
+            onDownloadCompleted?.call();
+            publishReportedNow();
+          }
+        },
+      );
+
+      if (!success) {
+        _errors.add(
+          ReportedError(
+            videoId: downloadCmd.advertisementId,
+            code: 'DOWNLOAD_FAILED',
+            message: 'Failed to start background download command',
+          ),
+        );
+      }
+    } catch (e) {
+      print('❌ [獨立下載] 解析指令失敗: $e');
+    }
+
     await _publishReported();
   }
 
@@ -264,11 +326,7 @@ class ShadowSyncService {
     onCampaignReady?.call(desired.campaignId!, playlist);
   }
 
-  /// LRU 垃圾回收：刪除不在 desired 清單中的歷史影片
   Future<void> _garbageCollect(DesiredPlaylist desired) async {
-
-    // 💡 防護一：如果後端下發的 desired 列表完全是空的，
-    // 代表這可能是個過渡狀態、指令或影子未就緒，此時盲目清空硬碟會導致狂撥本地空清單，直接略過。
     if (desired.videos.isEmpty) {
       print('⚠️ desired 影片列表為空，略過 LRU 垃圾回收以保護本地檔案。');
       return;
@@ -276,28 +334,21 @@ class ShadowSyncService {
 
     final keepFilenames = <String>{};
 
-    // 💡 防護二：在盤點前，強迫將所有 desired 影片的真實檔名解析出來，防止快取漏掉
     for (final video in desired.videos) {
-      // 1. 如果 desired 裡面有帶檔名，直接保留
       if (video.videoFilename != null && video.videoFilename!.isNotEmpty) {
         keepFilenames.add(video.videoFilename!);
-        _videoIdToFilename[video.videoId] = video.videoFilename!; // 順便幫快取補血
+        _videoIdToFilename[video.videoId] = video.videoFilename!;
         continue;
       }
-
-      // 2. 如果 desired 沒帶檔名，但快取有，保留
       if (_videoIdToFilename.containsKey(video.videoId)) {
         keepFilenames.add(_videoIdToFilename[video.videoId]!);
         continue;
       }
-
-      // 3. 雙重保險：如果快取也沒有，直接異步向 downloadManager 查後端 API 該廣告對應的 filename
       try {
         final info = await downloadManager.getDownloadInfo(video.videoId);
         if (info != null && info.filename.isNotEmpty) {
-          print('🔍 LRU 盤點防禦：成功為 ${video.videoId} 解析出實體檔名 ${info.filename}');
           keepFilenames.add(info.filename);
-          _videoIdToFilename[video.videoId] = info.filename; // 補進快取，防止時序錯位
+          _videoIdToFilename[video.videoId] = info.filename;
         }
       } catch (e) {
         print('⚠️ LRU 盤點解析檔名失敗: $e');
@@ -307,7 +358,6 @@ class ShadowSyncService {
     final localVideos = await downloadManager.getAllDownloadedVideos();
     final accessTimes = await _loadAccessTimes();
 
-    // 不在 desired 中的檔案，依 LRU 刪除
     final toDelete = localVideos.where((f) => !keepFilenames.contains(f)).toList();
     toDelete.sort((a, b) {
       final ta = accessTimes[a] ?? 0;
@@ -369,5 +419,7 @@ class ShadowSyncService {
     );
   }
 
-  Future<void> publishReportedNow() => _publishReported();
+  void publishReportedNow() {
+    _publishReported();
+  }
 }
