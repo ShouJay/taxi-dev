@@ -95,6 +95,7 @@ class PlaybackManager {
   Function(PlaybackState)? onStateChanged;
   Function(PlaybackItem?)? onItemChanged;
   Function(bool)? onPlaybackEnabledChanged;
+  Function(PlaybackItem?)? onItemChangedForSync;
 
   // 內部狀態
   bool _isDisposed = false;
@@ -220,6 +221,12 @@ class PlaybackManager {
       print('🚨 覆蓋播放: $advertisementName');
       _queue.clear();
       _queue.add(item);
+
+      // 💡 關鍵修改：如果是強制推播，立刻解除播放器的休眠鎖定！
+      if (!_isPlaybackEnabled) {
+        _isPlaybackEnabled = true;
+      }
+
       if (_state == PlaybackState.loading) {
         return;
       }
@@ -663,9 +670,14 @@ class PlaybackManager {
 
   /// 設置當前播放項目
   void _setCurrentItem(PlaybackItem? item) {
-    if (_currentItem?.advertisementId != item?.advertisementId) {
+    if (_currentItem != item || _currentItem?.isOverride != item?.isOverride) {
       _currentItem = item;
+
+      print('🔧 [Debug] 播放器內部確認換片，準備通知外界...');
+
       onItemChanged?.call(_currentItem);
+      // 💡 新增這行：通知 main.dart 去發送 MQTT 狀態
+      onItemChangedForSync?.call(_currentItem);
     }
   }
 

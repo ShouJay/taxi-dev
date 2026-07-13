@@ -159,6 +159,7 @@ class MqttManager {
   /// 回報設備影子狀態（QoS 1）
   void publishReported({
     String? currentCampaignId,
+    Map<String, dynamic>? playbackState, // 💡 1. 加入播放狀態參數
     required List<LocalVideoInventory> localInventory,
     required List<ReportedError> errors,
   }) {
@@ -166,6 +167,7 @@ class MqttManager {
 
     final payload = jsonEncode({
       'current_campaign_id': currentCampaignId,
+      'playback_state': playbackState, // 💡 2. 封裝進 JSON
       'local_inventory': localInventory.map((e) => e.toJson()).toList(),
       'errors': errors.map((e) => e.toJson()).toList(),
     });

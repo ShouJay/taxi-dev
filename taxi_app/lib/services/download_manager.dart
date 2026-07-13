@@ -116,7 +116,7 @@ class DownloadManager {
       if (onProgress != null) {
         _progressControllers[advertisementId]?.stream.listen(onProgress);
       }
-      return false;
+      return true;
     }
 
     // 檢查是否正在播放（播放中不能下載）

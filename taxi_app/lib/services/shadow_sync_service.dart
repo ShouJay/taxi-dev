@@ -15,6 +15,7 @@ import 'mqtt_manager.dart';
 class ShadowSyncService {
   final MqttManager mqttManager;
   final DownloadManager downloadManager;
+  final PlaybackManager playbackManager; // 💡 1. 新增依賴
 
   DesiredPlaylist? _currentDesired;
   String? _activeCampaignId;
@@ -22,6 +23,9 @@ class ShadowSyncService {
   final List<ReportedError> _errors = [];
   final Map<String, String> _videoIdToFilename = {};
   bool _isSyncing = false;
+
+  // 💡 新增：用來記錄獨立下載與 LBS 影片的檔名，避免被誤刪
+  final Set<String> _protectedFilenames = {};
 
   // 回調
   Function(String campaignId, List<PlaybackItem> playlist)? onCampaignReady;
@@ -33,6 +37,7 @@ class ShadowSyncService {
   ShadowSyncService({
     required this.mqttManager,
     required this.downloadManager,
+    required this.playbackManager, // 💡 2. 補上 Constructor
   });
 
   DesiredPlaylist? get currentDesired => _currentDesired;
@@ -113,19 +118,64 @@ class ShadowSyncService {
     await _publishReported();
   }
 
-  /// 💡 推播處理：嚴格檢查本地是否有檔案
+  ///推播處理
   Future<void> _handleOverridePlay(DesiredPlaylist desired) async {
     final cmd = desired.command;
     if (cmd == null) return;
 
     final videoFilename = cmd['video_filename'] as String? ?? '';
     final advertisementId = cmd['advertisement_id'] as String? ?? '';
-    if (videoFilename.isEmpty) return;
 
-    final exists = await downloadManager.isVideoExists(videoFilename);
+    if (videoFilename.isEmpty || advertisementId.isEmpty) {
+      print('❌ [推播失敗] 缺少 video_filename 或 advertisement_id');
+      return;
+    }
 
-    if (exists) {
-      print('🚨 [推播] 本地檔案存在，立即觸發插播: $videoFilename');
+    bool isReadyToPlay = await downloadManager.isVideoExists(videoFilename);
+
+    // 如果本地沒有檔案，觸發自動下載
+    if (!isReadyToPlay) {
+      print('📥 [自動下載] 本地無檔案，開始下載推播影片: $videoFilename (ID: $advertisementId)');
+
+      try {
+        // 💡 使用 Completer 來等待非同步的 onProgress 回呼完成
+        final completer = Completer<bool>();
+
+        // 呼叫你 DownloadManager 裡的 startDownload 方法
+        final started = await downloadManager.startDownload(
+          advertisementId: advertisementId,
+          onProgress: (task) {
+            // 監聽進度狀態，只要完成或失敗就結束等待
+            if (task.status == DownloadStatus.completed) {
+              if (!completer.isCompleted) completer.complete(true);
+            } else if (task.status == DownloadStatus.failed) {
+              print('❌ [自動下載] 失敗原因: ${task.errorMessage}');
+              if (!completer.isCompleted) completer.complete(false);
+            }
+          },
+        );
+
+        if (started) {
+          // 💡 在這裡真正卡住等待背景下載完成
+          isReadyToPlay = await completer.future;
+
+          // 💡 新增：加入免死金牌保護，並通知外部更新清單
+          if (isReadyToPlay) {
+            print('✅ [自動下載] 影片下載成功，準備切換插播！');
+            _protectedFilenames.add(videoFilename);
+            onDownloadCompleted?.call();
+          }
+        } else {
+          print('❌ [自動下載] 無法啟動下載任務 (可能已在下載中，或無法獲取下載資訊)');
+        }
+      } catch (e) {
+        print('❌ [自動下載] 發生不可預期的錯誤: $e');
+      }
+    }
+
+    // 根據最終的檔案狀態，決定插播或是報錯
+    if (isReadyToPlay) {
+      print('🚨 [推播] 準備就緒，立即觸發插播: $videoFilename');
       onOverridePlay?.call(
         PlayAdCommand(
           command: 'PLAY_VIDEO',
@@ -138,14 +188,14 @@ class ShadowSyncService {
         ),
       );
     } else {
-      print('❌ [推播失敗] 本地找不到檔案: $videoFilename，拒絕插播並上報錯誤');
+      print('❌ [推播失敗] 檔案未就緒 (找不到且無法下載): $videoFilename，拒絕插播並上報錯誤');
 
       _errors.clear();
       _errors.add(
         ReportedError(
           videoId: advertisementId.isNotEmpty ? advertisementId : 'unknown',
-          code: 'FILE_NOT_FOUND',
-          message: 'Push play failed: video file [$videoFilename] does not exist locally.',
+          code: 'FILE_NOT_READY',
+          message: 'Push play failed: video file [$videoFilename] is not ready (missing or download failed).',
         ),
       );
     }
@@ -161,6 +211,10 @@ class ShadowSyncService {
     try {
       final downloadCmd = DownloadVideoCommand.fromJson(cmd);
       final filename = downloadCmd.videoFilename;
+
+      // 💡 關鍵修復：把獨立下載的檔案加入免死金牌名單
+      _protectedFilenames.add(filename);
+
       print('📥 [獨立下載] 開始下載任務: ${downloadCmd.advertisementName}, 檔名: $filename');
 
       _videoIdToFilename[downloadCmd.advertisementId] = filename;
@@ -334,6 +388,9 @@ class ShadowSyncService {
 
     final keepFilenames = <String>{};
 
+    // 💡 關鍵修復：將受保護的 LBS 與預設影片加入保留名單
+    keepFilenames.addAll(_protectedFilenames);
+
     for (final video in desired.videos) {
       if (video.videoFilename != null && video.videoFilename!.isNotEmpty) {
         keepFilenames.add(video.videoFilename!);
@@ -412,8 +469,31 @@ class ShadowSyncService {
       }
     }
 
+    // 💡 1. 抓取當下最新的播放資訊
+    final currentItem = playbackManager.currentItem;
+
+    // 💡 2. 判斷播放模式 (對應前端 JS 的 state.mode)
+    String currentMode = 'offline';
+    if (playbackManager.state == PlaybackState.playing || playbackManager.state == PlaybackState.loading) {
+      currentMode = playbackManager.playbackMode == PlaybackMode.local ? 'local_playlist' : 'campaign';
+      if (currentItem?.isOverride == true) {
+        currentMode = 'override';
+      }
+    } else {
+      currentMode = 'idle';
+    }
+
+    // 💡 3. 組裝成前台看得懂的結構
+    final playbackState = {
+      'mode': currentMode,
+      'advertisement_name': currentItem?.advertisementName,
+      'video_filename': currentItem?.videoFilename,
+      'updated_at': DateTime.now().toUtc().toIso8601String(),
+    };
+
     mqttManager.publishReported(
       currentCampaignId: _activeCampaignId,
+      playbackState: playbackState, // 💡 4. 將狀態傳給 MQTT
       localInventory: inventory,
       errors: List.from(_errors),
     );
@@ -421,5 +501,50 @@ class ShadowSyncService {
 
   void publishReportedNow() {
     _publishReported();
+  }
+
+  /// 💡 新增：處理來自地理圍欄 (LBS) 的個別下載指令
+  Future<void> handleLbsDownload(DownloadVideoCommand downloadCmd) async {
+    final filename = downloadCmd.videoFilename;
+    print('📍 [LBS背景下載] 收到圍欄觸發下載: ${downloadCmd.advertisementName}, 檔名: $filename');
+
+    _videoIdToFilename[downloadCmd.advertisementId] = filename;
+
+    // 如果影片早就存在，直接觸發完成通知
+    if (await downloadManager.isVideoExists(filename)) {
+      print('✅ [LBS背景下載] 影片已存在本地，忽略下載: $filename');
+      _downloadProgress[downloadCmd.advertisementId] = 100;
+      onDownloadCompleted?.call();
+      await _publishReported();
+      return;
+    }
+
+    _downloadProgress[downloadCmd.advertisementId] = 0;
+    await _publishReported();
+
+    final success = await downloadManager.startDownload(
+      advertisementId: downloadCmd.advertisementId,
+      expectedMd5: null, // 可依需求決定是否校驗 MD5
+      onProgress: (task) {
+        _downloadProgress[downloadCmd.advertisementId] = task.progress;
+
+        if (task.status == DownloadStatus.completed) {
+          print('🎉 [LBS背景下載] 影片下載完成！通知外部重新比對圍欄狀態: $filename');
+          onDownloadCompleted?.call();
+          publishReportedNow();
+        }
+      },
+    );
+
+    if (!success) {
+      _errors.add(
+        ReportedError(
+          videoId: downloadCmd.advertisementId,
+          code: 'LBS_DOWNLOAD_FAILED',
+          message: 'Failed to start LBS background download for $filename',
+        ),
+      );
+      await _publishReported();
+    }
   }
 }
