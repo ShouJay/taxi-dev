@@ -30,7 +30,7 @@ class ShadowSyncService {
   // 回調
   Function(String campaignId, List<PlaybackItem> playlist)? onCampaignReady;
   Function()? onRevertToLocal;
-  Function(PlayAdCommand)? onOverridePlay;
+  Future<void>Function(PlayAdCommand)? onOverridePlay;
   // 💡 新增：背景下載完成的回調，用來通知 main.dart 刷新播放清單
   Function()? onDownloadCompleted;
 
@@ -176,7 +176,7 @@ class ShadowSyncService {
     // 根據最終的檔案狀態，決定插播或是報錯
     if (isReadyToPlay) {
       print('🚨 [推播] 準備就緒，立即觸發插播: $videoFilename');
-      onOverridePlay?.call(
+      await onOverridePlay?.call(
         PlayAdCommand(
           command: 'PLAY_VIDEO',
           videoFilename: videoFilename,
@@ -477,7 +477,7 @@ class ShadowSyncService {
     if (playbackManager.state == PlaybackState.playing || playbackManager.state == PlaybackState.loading) {
       currentMode = playbackManager.playbackMode == PlaybackMode.local ? 'local_playlist' : 'campaign';
       if (currentItem?.isOverride == true) {
-        currentMode = 'override';
+        currentMode = 'override_play';
       }
     } else {
       currentMode = 'idle';

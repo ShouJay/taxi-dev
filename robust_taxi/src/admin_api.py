@@ -311,38 +311,84 @@ def init_admin_api(
     @admin_api.route('/devices/playback', methods=['GET'])
     def get_devices_playback():
         """
-        獲取所有設備的播放狀態
-        
-        前端用途：
-        - 即時監控各設備播放內容
-        - 儀表板播放狀態總覽
+        [偵錯版] 獲取所有設備的播放狀態
         """
+        # 這裡的 device_playback_state 檢查如果會擋人，可以先註解掉，或確保它有初始化
         if device_playback_state is None:
-            return jsonify({
-                "status": "error",
-                "message": "播放狀態功能未啟用"
-            }), 501
-        
+            logger.warning("[Debug] 偵測到 device_playback_state 為 None")
+            # 如果你決定完全用 DB 替代它，這段 if 檢查可以拿掉
+            pass 
+    
         try:
             playback_list = []
-            for device_id, playback in device_playback_state.items():
-                entry = deepcopy(playback)
-                entry['device_id'] = device_id
-                entry['is_online'] = is_device_online(device_id)
-                playback_list.append(entry)
+        
+            # 💡 偵錯點 1：確認資料庫物件名稱
+            # 請根據你這個檔案（admin_api.py）上方是怎麼引入資料庫的。
+            # 可能是 db.devices.find()、mongo.db.devices.find() 或是 current_app.db.devices.find()
+            # 這裡以你們常用的 `db.devices` 為例：
+            devices_cursor = db.devices.find() 
+            all_devices = list(devices_cursor)
+            
+            # 💡 終端機印出：看看有沒有連上 DB，撈出幾筆？
+            print(f"\n===== [Debug] 開始撈取播放狀態 =====")
+            print(f"[Debug] 從 db.devices 撈出 {len(all_devices)} 筆原始資料")
+            logger.info(f"[Debug] 從 db.devices 撈出 {len(all_devices)} 筆原始資料")
+            
+            for device in all_devices:
+                # 💡 偵錯點 2：欄位名稱相容（同時抓 _id 與 device_id）
+                device_id = device.get('_id') or device.get('device_id')
+                print(f"[Debug] 正在處理設備 ID: {device_id}")
+                
+                if not device_id:
+                    print(f"[Debug] ⚠️ 發現一筆沒有 ID 的設備，略過: {device}")
+                    continue
+                    
+                # 💡 偵錯點 3：觀察資料庫內到底有沒有 shadow.reported
+                reported_state = device.get('shadow', {}).get('reported', {}).get('playback_state')
+                forced_state = device.get('playback_state')
+                
+                print(f"[Debug] 設備 {device_id} 的 reported_state: {reported_state}")
+                print(f"[Debug] 設備 {device_id} 的 forced_state: {forced_state}")
+                
+                # 優先使用車機回報
+                final_state = reported_state if reported_state else forced_state
+                
+                if final_state:
+                    entry = deepcopy(final_state)
+                    entry['device_id'] = device_id
+                    
+                    # 💡 偵錯點 4：檢查 is_device_online 這個函式會不會報錯
+                    try:
+                        entry['is_online'] = is_device_online(device_id)
+                    except Exception as online_err:
+                        print(f"[Debug] ⚠️ 判斷線上狀態失敗: {online_err}")
+                        entry['is_online'] = False # 報錯的話預設給 False 防崩潰
+                        
+                    playback_list.append(entry)
+                    print(f"[Debug] ✅ 成功加入列表: {entry.get('advertisement_name', '無名稱')}")
+                else:
+                    print(f"[Debug] ❌ 設備 {device_id} 找不到任何 playback_state 資料")
             
             playback_list.sort(key=lambda item: item.get('updated_at', ''), reverse=True)
+            print(f"[Debug] 最終回傳列表長度: {len(playback_list)}")
+            print(f"====================================\n")
             
             return jsonify({
                 "status": "success",
                 "total": len(playback_list),
                 "playback_states": playback_list
             }), 200
+        
         except Exception as e:
-            logger.error(f"獲取播放狀態列表失敗: {e}")
+            # 💡 偵錯點 5：抓出整段程式碼崩潰的元凶
+            logger.error(f"獲取播放狀態列表失敗: {e}", exc_info=True)
+            print(f"[Debug] 💥 程式發生嚴重錯誤: {e}")
+            import traceback
+            traceback.print_exc() # 把錯誤行數清清楚楚印在終端機
+        
             return jsonify({
                 "status": "error",
-                "message": "獲取播放狀態失敗"
+                "message": f"獲取播放狀態失敗: {str(e)}"
             }), 500
     
     

@@ -19,6 +19,7 @@ class DeviceModel:
             "reported": {
                 "current_campaign_id": None,
                 "local_inventory": [],
+                "playback_state":[],
                 "errors": [],
                 "updated_at": None
             }

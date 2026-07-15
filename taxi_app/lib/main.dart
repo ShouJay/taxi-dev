@@ -244,6 +244,14 @@ class _AppContainerState extends State<AppContainer>
         print('⚠️ [狀態回報失敗] MQTT 尚未連線');
       }
     };
+
+    // 💡 [請補上這段] 監聽播放狀態改變 (例如 loading -> playing, 或變成 idle)
+    _playbackManager.onStateChanged = (state) {
+      print('📡 [狀態改變回報] 播放器狀態變更為: $state，準備發送 MQTT 更新');
+      if (_mqttManager.isConnected) {
+        _shadowSync.publishReportedNow();
+      }
+    };
   }
 
   void _setupLocationCallbacks() {

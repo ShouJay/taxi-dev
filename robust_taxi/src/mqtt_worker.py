@@ -115,6 +115,7 @@ class MqttWorker:
 
         reported_payload = {
             "current_campaign_id": payload.get("current_campaign_id"),
+            "playback_state": payload.get("playback_state", []),
             "local_inventory": payload.get("local_inventory", []),
             "errors": payload.get("errors", []),
             "updated_at": datetime.now(timezone.utc).isoformat(),

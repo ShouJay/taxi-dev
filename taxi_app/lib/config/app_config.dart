@@ -3,7 +3,7 @@ import 'dart:io';
 /// 應用程式配置
 class AppConfig {
   // HTTP API（影片分片下載）
-  static const String baseUrl = 'https://chubby-wings-roll.loca.lt';
+  static const String baseUrl = 'https://fresh-eagles-dress.loca.lt';
 
   // 本地 Docker 開發（Android 模擬器請用 10.0.2.2）
   // static const String baseUrl = 'http://10.0.2.2:8080';
