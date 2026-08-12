@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:shorebird_code_push/shorebird_code_push.dart'; // 💡 [Shorebird] 引用套件
+import 'package:restart_app/restart_app.dart'; // 💡 [Shorebird] 引用軟重啟套件
 import 'package:taxi_app/services/geofence_manager.dart';
 import 'config/app_config.dart';
 import 'models/download_info.dart';
@@ -62,6 +64,11 @@ class _AppContainerState extends State<AppContainer>
   late LocationService _locationService;
   late GeofenceManager _geofenceManager;
 
+  //自動更新
+  final _shorebirdCodePush = ShorebirdCodePush();
+  Timer? _shorebirdTimer;
+  bool _isPatchReadyToInstall = false;
+
   bool _showSettings = false;
   bool _isInitialized = false;
   bool _isAdminMode = false;
@@ -80,7 +87,7 @@ class _AppContainerState extends State<AppContainer>
 
   Future<void> _initialize() async {
     try {
-      print('🚀 初始化 MQTT 車載 App v2.0.0...');
+      print('🚀 初始化 MQTT 車載 熱補丁OK版本App v2.0.0...');
       final prefs = await SharedPreferences.getInstance();
 
       final deviceId =
@@ -115,6 +122,9 @@ class _AppContainerState extends State<AppContainer>
       await _locationService.start();
       await _playbackManager.startAutoPlay();
 
+      //啟動熱補丁輪詢與檢查機制
+      _initShorebirdPolling();
+
       if (mounted) {
         setState(() {
           _isInitialized = true;
@@ -127,6 +137,55 @@ class _AppContainerState extends State<AppContainer>
     } catch (e) {
       print('❌ 初始化失敗: $e');
     }
+  }
+
+  // 💡 [Shorebird] 初始化輪詢與定時器
+  void _initShorebirdPolling() {
+    // 啟動 App 後在背景先檢查一次
+    _checkForShorebirdUpdates();
+
+    // 針對常駐車載平板，設定每 4 小時自動檢查一次雲端 Patch
+    _shorebirdTimer = Timer.periodic(const Duration(hours: 4), (_) {
+      _checkForShorebirdUpdates();
+    });
+  }
+
+  // 💡 [Shorebird] 背景檢查與下載 Patch
+  Future<void> _checkForShorebirdUpdates() async {
+    try {
+      print('🦋 [Shorebird] 開始檢查熱補丁更新...');
+
+      final currentPatch = await _shorebirdCodePush.currentPatchNumber();
+      print('🦋 [Shorebird] 當前 Patch 版本: ${currentPatch ?? "Base Release (無補丁)"}');
+
+      final isAvailable = await _shorebirdCodePush.isNewPatchAvailableForDownload();
+      if (isAvailable) {
+        print('📥 [Shorebird] 發現新版 Patch！開始背景靜默下載...');
+        await _shorebirdCodePush.downloadUpdateIfAvailable();
+        print('✅ [Shorebird] Patch 下載完成！已準備就緒，等待安全時機重啟套用。');
+
+        _isPatchReadyToInstall = true;
+        _trySafeRestart();
+      } else {
+        print('🦋 [Shorebird] 目前已是最新的 Patch，無需更新。');
+      }
+    } catch (e) {
+      print('❌ [Shorebird] 檢查更新失敗: $e');
+    }
+  }
+
+  // 💡 [Shorebird] 安全重啟防護機制
+  void _trySafeRestart() {
+    if (!_isPatchReadyToInstall) return;
+
+    // 🛡️ 防護 1：若目前處於緊急警報播放狀態，絕對不自動重啟
+    if (_emergencyState.isAlarmActive) {
+      print('⚠️ [Shorebird] 目前處於「緊急警報」狀態，暫緩自動重啟，等警報解除後重試。');
+      return;
+    }
+
+    print('🔄 [Shorebird] 系統目前處於安全狀態，即將重啟套用最新熱補丁！');
+    Restart.restartApp();
   }
 
   void _initGeofence() {
@@ -316,6 +375,8 @@ class _AppContainerState extends State<AppContainer>
       } else if (_wasInEmergencyPlayback) {
         _wasInEmergencyPlayback = false;
         await _playbackManager.revertToLocalPlayback();
+
+        _trySafeRestart();
       }
     }
   }
@@ -446,6 +507,7 @@ class _AppContainerState extends State<AppContainer>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _mqttManager.dispose();
+    _shorebirdTimer?.cancel();
     _downloadManager.dispose();
     _playbackManager.dispose();
     _locationService.dispose();
