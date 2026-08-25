@@ -21,3 +21,7 @@ ENV/
 
 # Environment
 .env
+
+# Runtime uploads
+uploads/
+video_backup/

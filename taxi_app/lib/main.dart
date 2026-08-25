@@ -21,6 +21,7 @@ import 'screens/settings_screen.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  AppConfig.validate();
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
   SystemChrome.setPreferredOrientations(const [
     DeviceOrientation.portraitUp,
@@ -116,7 +117,6 @@ class _AppContainerState extends State<AppContainer>
       _setupShadowHandlers();
       _setupLocationCallbacks();
       _initGeofence();
-      _setupLocationCallbacks();
 
       await _mqttManager.connect();
       await _locationService.start();
@@ -192,69 +192,57 @@ class _AppContainerState extends State<AppContainer>
     _geofenceManager = GeofenceManager();
 
     // 💡 點一：當進入最高優先級區域
-    _geofenceManager.onEnterHighestPriorityZone = (campaignId, playCmds, dlCmds) async {
-      print('📍 [Geofence] 進入最高優先級活動區域: $campaignId');
+    _geofenceManager.onEnterHighestPriorityZone =
+        (campaignId, playCmds, dlCmds) async {
+          print('📍 [Geofence] 進入最高優先級活動區域: $campaignId');
 
-      bool allFilesExist = true;
+          bool allFilesExist = true;
 
-      // 檢查該活動播放清單中的影片是否都已存在本地
-      for (final playCmd in playCmds) {
-        final exists = await _downloadManager.isVideoExists(playCmd.videoFilename);
-        if (!exists) {
-          allFilesExist = false;
-          break; // 只要缺一通，就判定為檔案不齊全
-        }
-      }
+          // 檢查該活動播放清單中的影片是否都已存在本地
+          for (final playCmd in playCmds) {
+            final exists = await _downloadManager.isVideoExists(
+              playCmd.videoFilename,
+            );
+            if (!exists) {
+              allFilesExist = false;
+              break; // 只要缺一通，就判定為檔案不齊全
+            }
+          }
 
-      // 🌟 分流控制
-      if (allFilesExist) {
-        // 【如果有檔就播放】
-        print('✅ [Geofence] 影片皆已就緒，立即切換播放 LBS 廣告清單');
+          // 🌟 分流控制
+          if (allFilesExist) {
+            // 【如果有檔就播放】
+            print('✅ [Geofence] 影片皆已就緒，立即切換播放 LBS 廣告清單');
 
-        final playlist = playCmds.map((cmd) => PlaybackItem(
-          videoFilename: cmd.videoFilename,
-          advertisementId: cmd.advertisementId,
-          advertisementName: cmd.advertisementName,
-          trigger: cmd.trigger, // 'location_based'
-          campaignId: cmd.campaignId,
-        )).toList();
+            final playlist = playCmds
+                .map(
+                  (cmd) => PlaybackItem(
+                    videoFilename: cmd.videoFilename,
+                    advertisementId: cmd.advertisementId,
+                    advertisementName: cmd.advertisementName,
+                    trigger: cmd.trigger, // 'location_based'
+                    campaignId: cmd.campaignId,
+                  ),
+                )
+                .toList();
 
-        await _playbackManager.startCampaignPlayback(
-          campaignId: campaignId,
-          playlist: playlist,
-        );
-      } else {
-        // 【沒有檔就下載】目前的廣告不會被打斷，默默在背景吞下載指令
-        print('📥 [Geofence] 發現缺失影片，維持現狀播放，背景啟動 LBS 下載指令');
-        for (final dlCmd in dlCmds) {
-          _shadowSync.handleLbsDownload(dlCmd); // 呼叫剛剛新增的方法
-        }
-      }
-    };
+            await _playbackManager.startCampaignPlayback(
+              campaignId: campaignId,
+              playlist: playlist,
+            );
+          } else {
+            // 【沒有檔就下載】目前的廣告不會被打斷，默默在背景吞下載指令
+            print('📥 [Geofence] 發現缺失影片，維持現狀播放，背景啟動 LBS 下載指令');
+            for (final dlCmd in dlCmds) {
+              _shadowSync.handleLbsDownload(dlCmd); // 呼叫剛剛新增的方法
+            }
+          }
+        };
 
     // 💡 點二：當離開所有區域
     _geofenceManager.onExitAllZones = () {
       print('👋 [Geofence] 離開所有 LBS 區域，恢復一般/本地預設播放清單');
       _playbackManager.revertToLocalPlayback();
-    };
-
-    // 💡 點三：綁定同步服務的下載完成通知
-    // 當背景默默把 LBS 缺失的影片下載到 100% 時，用當下座標原地重刷，這時上面「有檔就播」就會成立！
-    _shadowSync.onDownloadCompleted = () async {
-      print('🔄 [Main] 收到背景下載完成通知！');
-
-      // 💡 關鍵修復 1：通知播放器重新掃描硬碟，把剛載好的新影片加入「本地預設播放清單」
-      // (請根據你的 PlaybackManager 實際的方法名稱來呼叫，通常叫 reload、refresh 或 init)
-      await _playbackManager.refreshLocalPlaylist();
-
-      // 或者，如果是直接呼叫恢復本地播放來觸發刷新，也可以寫：
-      // _playbackManager.revertToLocalPlayback();
-
-      // 💡 關鍵修復 2：如果是地理圍欄的影片補檔完成，觸發原地重新檢查
-      if (_latestPosition != null) {
-        print('🔄 [Main] 驅動 Geofence 重新比對當前座標...');
-        _geofenceManager.processLocationUpdate(_latestPosition!);
-      }
     };
   }
 
@@ -289,28 +277,31 @@ class _AppContainerState extends State<AppContainer>
       await _handlePlayAdCommand(command);
     };
 
-    _shadowSync.onDownloadCompleted = () async {
-      print('🔔 收到下載完成通知，更新 PlaybackManager 播放清單');
-      await _playbackManager.refreshLocalPlaylistAfterDownload();
-    };
+    _shadowSync.addDownloadCompletedListener(_handleDownloadCompleted);
+    _playbackManager.addItemListener(_handlePlaybackItemChangedForSync);
+    _playbackManager.addStateListener(_handlePlaybackStateChangedForSync);
+  }
 
-    // 💡 關鍵修復：這裡改綁定 onItemChangedForSync 這條專線！
-    _playbackManager.onItemChangedForSync = (currentItem) {
-      print('📡 [狀態回報] 播放切換至: ${currentItem?.advertisementName}，準備發送 MQTT 更新');
-      if (_mqttManager.isConnected) {
-        _shadowSync.publishReportedNow();
-      } else {
-        print('⚠️ [狀態回報失敗] MQTT 尚未連線');
-      }
-    };
+  Future<void> _handleDownloadCompleted() async {
+    print('🔔 收到下載完成通知，更新播放清單與圍欄狀態');
+    await _playbackManager.refreshLocalPlaylistAfterDownload();
+    if (_latestPosition != null) {
+      _geofenceManager.processLocationUpdate(_latestPosition!);
+    }
+  }
 
-    // 💡 [請補上這段] 監聽播放狀態改變 (例如 loading -> playing, 或變成 idle)
-    _playbackManager.onStateChanged = (state) {
-      print('📡 [狀態改變回報] 播放器狀態變更為: $state，準備發送 MQTT 更新');
-      if (_mqttManager.isConnected) {
-        _shadowSync.publishReportedNow();
-      }
-    };
+  void _handlePlaybackItemChangedForSync(PlaybackItem? currentItem) {
+    print('📡 [狀態回報] 播放切換至: ${currentItem?.advertisementName}');
+    if (_mqttManager.isConnected) {
+      _shadowSync.publishReportedNow();
+    }
+  }
+
+  void _handlePlaybackStateChangedForSync(PlaybackState state) {
+    print('📡 [狀態回報] 播放器狀態變更為: $state');
+    if (_mqttManager.isConnected) {
+      _shadowSync.publishReportedNow();
+    }
   }
 
   void _setupLocationCallbacks() {
@@ -382,7 +373,9 @@ class _AppContainerState extends State<AppContainer>
   }
 
   Future<void> _handlePlayAdCommand(PlayAdCommand command) async {
-    bool isReadyToPlay = await _downloadManager.isVideoExists(command.videoFilename);
+    bool isReadyToPlay = await _downloadManager.isVideoExists(
+      command.videoFilename,
+    );
 
     // 1. 如果本地沒有檔案，觸發自動下載
     if (!isReadyToPlay) {
@@ -506,6 +499,9 @@ class _AppContainerState extends State<AppContainer>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _shadowSync.removeDownloadCompletedListener(_handleDownloadCompleted);
+    _playbackManager.removeItemListener(_handlePlaybackItemChangedForSync);
+    _playbackManager.removeStateListener(_handlePlaybackStateChangedForSync);
     _mqttManager.dispose();
     _shorebirdTimer?.cancel();
     _downloadManager.dispose();

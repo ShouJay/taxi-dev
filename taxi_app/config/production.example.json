@@ -1,0 +1,9 @@
+{
+  "APP_ENV": "production",
+  "API_BASE_URL": "https://api.example.com",
+  "MQTT_HOST": "mqtt.example.com",
+  "MQTT_PORT": "8883",
+  "MQTT_USE_TLS": "true",
+  "MQTT_USERNAME": "replace-me",
+  "MQTT_PASSWORD": "replace-me"
+}

@@ -91,11 +91,10 @@ class PlaybackManager {
   /// 活動模式連續缺檔次數（避免同一缺檔無限重試）
   int _campaignMissingFileStreak = 0;
 
-  // 狀態監聽器
-  Function(PlaybackState)? onStateChanged;
-  Function(PlaybackItem?)? onItemChanged;
-  Function(bool)? onPlaybackEnabledChanged;
-  Function(PlaybackItem?)? onItemChangedForSync;
+  // 狀態監聽器（支援 UI 與同步服務同時訂閱）
+  final Set<void Function(PlaybackState)> _stateListeners = {};
+  final Set<void Function(PlaybackItem?)> _itemListeners = {};
+  final Set<void Function(bool)> _playbackEnabledListeners = {};
 
   // 內部狀態
   bool _isDisposed = false;
@@ -105,9 +104,7 @@ class PlaybackManager {
   static const Duration _errorRetryDelay = Duration(seconds: 2);
   static const Duration _playbackEndTolerance = Duration(milliseconds: 400);
 
-  PlaybackManager({
-    required this.downloadManager,
-  });
+  PlaybackManager({required this.downloadManager});
 
   // Getters
   VideoPlayerController? get controller => _currentController;
@@ -117,6 +114,29 @@ class PlaybackManager {
   int get queueLength => _queue.length;
   bool get isPlaybackEnabled => _isPlaybackEnabled;
   String? get activeCampaignId => _activeCampaignId;
+
+  void addStateListener(void Function(PlaybackState) listener) =>
+      _stateListeners.add(listener);
+  void removeStateListener(void Function(PlaybackState) listener) =>
+      _stateListeners.remove(listener);
+  void addItemListener(void Function(PlaybackItem?) listener) =>
+      _itemListeners.add(listener);
+  void removeItemListener(void Function(PlaybackItem?) listener) =>
+      _itemListeners.remove(listener);
+  void addPlaybackEnabledListener(void Function(bool) listener) =>
+      _playbackEnabledListeners.add(listener);
+  void removePlaybackEnabledListener(void Function(bool) listener) =>
+      _playbackEnabledListeners.remove(listener);
+
+  void _notifyListeners<T>(Set<void Function(T)> listeners, T value) {
+    for (final listener in List<void Function(T)>.from(listeners)) {
+      try {
+        listener(value);
+      } catch (error) {
+        print('⚠️ 播放事件監聽器執行失敗: $error');
+      }
+    }
+  }
 
   /// 初始化並開始自動播放（依 SharedPreferences 與本地是否有影片決定是否啟用播放）
   Future<void> startAutoPlay() async {
@@ -158,7 +178,7 @@ class PlaybackManager {
     } else {
       _isPlaybackEnabled = true;
     }
-    onPlaybackEnabledChanged?.call(_isPlaybackEnabled);
+    _notifyListeners(_playbackEnabledListeners, _isPlaybackEnabled);
   }
 
   /// 下載完成後僅更新本地循環列表，不插隊插播；必要時在閒置狀態下開始循環
@@ -181,12 +201,12 @@ class PlaybackManager {
       _localPlaylist = videoFilenames
           .map(
             (filename) => PlaybackItem(
-          videoFilename: filename,
-          advertisementId: 'local-$filename',
-          advertisementName: filename,
-          trigger: 'local_loop',
-        ),
-      )
+              videoFilename: filename,
+              advertisementId: 'local-$filename',
+              advertisementName: filename,
+              trigger: 'local_loop',
+            ),
+          )
           .toList();
 
       print('📋 本地播放列表已刷新: ${_localPlaylist.length} 個影片');
@@ -280,7 +300,7 @@ class PlaybackManager {
     // 絕對不要打斷它，直接略過這個恢復請求！
     if (_playbackMode == PlaybackMode.local &&
         (_state == PlaybackState.playing || _state == PlaybackState.loading)) {
-       print('ℹ️ 當前已在本地播放中，略過重複的恢復請求。');
+      print('ℹ️ 當前已在本地播放中，略過重複的恢復請求。');
       return;
     }
 
@@ -327,8 +347,8 @@ class PlaybackManager {
         _locationBasedAds.remove(adId);
         // 從隊列中移除過期的位置廣告
         _queue.removeWhere(
-              (item) =>
-          item.advertisementId == adId && item.trigger == 'location_based',
+          (item) =>
+              item.advertisementId == adId && item.trigger == 'location_based',
         );
       }
     }
@@ -342,7 +362,7 @@ class PlaybackManager {
     await prefs.setBool(AppConfig.playbackEnabledKey, enabled);
 
     _isPlaybackEnabled = enabled;
-    onPlaybackEnabledChanged?.call(enabled);
+    _notifyListeners(_playbackEnabledListeners, enabled);
 
     // 如果正在 loading，偏好已寫入，待載入完成後於 _playItem 依 enabled 決定 play 或 paused
     if (_state == PlaybackState.loading) {
@@ -355,7 +375,8 @@ class PlaybackManager {
     } else {
       if (_state == PlaybackState.paused) {
         await resume();
-      } else if (_state == PlaybackState.idle || _state == PlaybackState.error) {
+      } else if (_state == PlaybackState.idle ||
+          _state == PlaybackState.error) {
         await _playNext();
       }
     }
@@ -612,8 +633,7 @@ class PlaybackManager {
         !_userPausedPlayback) {
       final position = value.position;
       final duration = value.duration;
-      final atEnd =
-      duration >= _playbackEndTolerance
+      final atEnd = duration >= _playbackEndTolerance
           ? position >= duration - _playbackEndTolerance
           : position >= duration;
 
@@ -664,7 +684,7 @@ class PlaybackManager {
   void _setState(PlaybackState newState) {
     if (_state != newState) {
       _state = newState;
-      onStateChanged?.call(_state);
+      _notifyListeners(_stateListeners, _state);
     }
   }
 
@@ -675,9 +695,7 @@ class PlaybackManager {
 
       print('🔧 [Debug] 播放器內部確認換片，準備通知外界...');
 
-      onItemChanged?.call(_currentItem);
-      // 💡 新增這行：通知 main.dart 去發送 MQTT 狀態
-      onItemChangedForSync?.call(_currentItem);
+      _notifyListeners(_itemListeners, _currentItem);
     }
   }
 
@@ -704,7 +722,7 @@ class PlaybackManager {
         final item = _campaignPlaylist![i];
         final isCurrent =
             i == _campaignPlaylistIndex &&
-                _currentItem?.advertisementId == item.advertisementId;
+            _currentItem?.advertisementId == item.advertisementId;
         playlist.add(
           PlaybackInfo(
             filename: item.videoFilename,
@@ -722,8 +740,8 @@ class PlaybackManager {
       final item = _localPlaylist[i];
       final isCurrent =
           _playbackMode == PlaybackMode.local &&
-              i == (_localPlaylistIndex - 1) % _localPlaylist.length &&
-              _currentItem?.advertisementId == item.advertisementId;
+          i == (_localPlaylistIndex - 1) % _localPlaylist.length &&
+          _currentItem?.advertisementId == item.advertisementId;
       playlist.add(
         PlaybackInfo(
           filename: item.videoFilename,
@@ -793,6 +811,9 @@ class PlaybackManager {
     _localPlaylist.clear();
     _campaignPlaylist = null;
     _locationBasedAds.clear();
+    _stateListeners.clear();
+    _itemListeners.clear();
+    _playbackEnabledListeners.clear();
 
     print('✅ 播放管理器已清理');
   }

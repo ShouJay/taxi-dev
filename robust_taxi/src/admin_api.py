@@ -13,11 +13,13 @@ import json
 import hashlib
 from werkzeug.utils import secure_filename
 
+from src.config import UPLOAD_ROOT
+
 logger = logging.getLogger(__name__)
 
 # 影片上傳配置
-UPLOAD_FOLDER = 'uploads/videos'
-CHUNK_FOLDER = 'uploads/chunks'
+UPLOAD_FOLDER = os.path.join(UPLOAD_ROOT, 'videos')
+CHUNK_FOLDER = os.path.join(UPLOAD_ROOT, 'chunks')
 ALLOWED_EXTENSIONS = {'mp4', 'avi', 'mov', 'mkv', 'webm', 'flv', 'wmv', 'm4v'}
 MAX_FILE_SIZE = 10 * 1024 * 1024 * 1024  # 10GB
 CHUNK_SIZE = 10 * 1024 * 1024  # 10MB per chunk (增加分片大小)
@@ -2673,4 +2675,3 @@ def init_admin_api(
     
     
     return admin_api
-

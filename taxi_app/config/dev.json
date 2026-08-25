@@ -1,0 +1,9 @@
+{
+  "APP_ENV": "development",
+  "API_BASE_URL": "http://10.0.2.2:8080",
+  "MQTT_HOST": "10.0.2.2",
+  "MQTT_PORT": "1883",
+  "MQTT_USE_TLS": "false",
+  "MQTT_USERNAME": "",
+  "MQTT_PASSWORD": ""
+}

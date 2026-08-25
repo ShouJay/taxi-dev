@@ -14,9 +14,9 @@
 set -euo pipefail
 
 # ============ 設定區（每個人改成自己的，勿 commit 回 repo）============
-REPO_DIR="$HOME/path/to/robust_taxi"   # 你的 robust_taxi 本機 clone 路徑
+REPO_DIR="/Users/jieming/Documents/GitHub/robust_taxi"   # 你的 robust_taxi 本機 clone 路徑
 SSH_KEY="$HOME/.ssh/taxi_vm"           # 你連 VM 用的「私鑰」（換成你自己的）
-VM_IP="請填入VM公網IP"                  # 向管理者索取，例如 20.1.2.3
+VM_IP="13.70.26.4"                  # 向管理者索取，例如 20.1.2.3
 BRANCH="Gary"
 ADMIN_USER="azureuser"
 # ====================================================================
@@ -39,7 +39,11 @@ else
 fi
 git push origin "$BRANCH"
 
-echo "=== 2/3 + 3/3 連進 VM 觸發部署 ==="
+echo "=== 2/3 同步 VM 部署腳本 ==="
+scp -i "$SSH_KEY" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new \
+  -o ConnectTimeout=20 "$REPO_DIR/vm_deploy.sh" "$ADMIN_USER@$VM_IP:vm_deploy.sh"
+
+echo "=== 3/3 連進 VM 觸發部署 ==="
 ssh -i "$SSH_KEY" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new \
   -o ConnectTimeout=20 "$ADMIN_USER@$VM_IP" './vm_deploy.sh'
 

@@ -1,5 +1,7 @@
 """業務邏輯服務層。"""
 
+import hashlib
+import json
 import logging
 from datetime import datetime, timezone
 
@@ -76,18 +78,47 @@ class AdDecisionService:
             return f"{CDN_BASE_URL}/{ad_id}"
         return f"{API_BASE_URL}/api/v1/device/videos/{ad_id}/download"
 
+    @staticmethod
+    def playlist_content_version(playlist):
+        """為播放內容產生穩定版本，不納入 updated_at 等動態欄位。"""
+        content = {
+            "campaign_id": playlist.get("campaign_id"),
+            "videos": [
+                {
+                    "video_id": video.get("video_id"),
+                    "url": video.get("url"),
+                    "md5": video.get("md5"),
+                    "file_size": video.get("file_size"),
+                    "video_filename": video.get("video_filename"),
+                }
+                for video in playlist.get("videos", [])
+            ],
+        }
+        canonical = json.dumps(
+            content,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+    @classmethod
+    def with_content_metadata(cls, playlist):
+        result = dict(playlist)
+        result["content_version"] = cls.playlist_content_version(result)
+        result["updated_at"] = datetime.now(timezone.utc).isoformat()
+        return result
+
     def build_desired_playlist(self, device_id, longitude, latitude):
         device, campaign = self._get_eligible_campaign(device_id, longitude, latitude)
         if not device:
             return None
 
-        updated_at = datetime.now(timezone.utc).isoformat()
         if campaign is None:
-            return {
+            return self.with_content_metadata({
                 "campaign_id": None,
                 "videos": [],
-                "updated_at": updated_at
-            }
+            })
 
         resolved_ads = self._resolve_campaign_ads(campaign)
         videos = []
@@ -100,11 +131,10 @@ class AdDecisionService:
                 "video_filename": ad_doc.get("video_filename")
             })
 
-        return {
+        return self.with_content_metadata({
             "campaign_id": campaign["_id"],
             "videos": videos,
-            "updated_at": updated_at
-        }
+        })
     
     def decide_ad(self, device_id, longitude, latitude):
         """
@@ -146,4 +176,3 @@ class AdDecisionService:
         except Exception as e:
             logger.error(f"廣告決策過程出錯: {e}", exc_info=True)
             return None
-

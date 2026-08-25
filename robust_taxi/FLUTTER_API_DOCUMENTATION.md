@@ -66,7 +66,7 @@ String deviceId = "taxi-AAB-1234-rooftop";
 curl http://localhost:8080/health
 
 # 檢查MongoDB連接
-curl http://localhost:8080/init_db
+curl -X POST http://localhost:8080/migrate_db
 ```
 
 ---
@@ -1175,4 +1175,3 @@ try {
 6. 實作管理設定頁面
 
 如需更多協助，請參考程式碼註釋或聯繫開發團隊。
-

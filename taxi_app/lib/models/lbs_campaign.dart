@@ -30,14 +30,20 @@ class LbsCampaign {
       lbsPriority: json['lbs_priority'] as int? ?? 0,
 
       // 解析播放指令
-      playCommands: (json['play_commands'] as List<dynamic>?)
-          ?.map((e) => PlayAdCommand.fromJson(e as Map<String, dynamic>))
-          .toList() ?? [],
+      playCommands:
+          (json['play_commands'] as List<dynamic>?)
+              ?.map((e) => PlayAdCommand.fromJson(e as Map<String, dynamic>))
+              .toList() ??
+          [],
 
       // 解析下載指令
-      downloadCommands: (json['download_commands'] as List<dynamic>?)
-          ?.map((e) => DownloadVideoCommand.fromJson(e as Map<String, dynamic>))
-          .toList() ?? [],
+      downloadCommands:
+          (json['download_commands'] as List<dynamic>?)
+              ?.map(
+                (e) => DownloadVideoCommand.fromJson(e as Map<String, dynamic>),
+              )
+              .toList() ??
+          [],
     );
   }
 }

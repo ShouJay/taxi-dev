@@ -2,18 +2,60 @@ import 'dart:io';
 
 /// 應用程式配置
 class AppConfig {
-  // HTTP API（影片分片下載）
-  static const String baseUrl = 'http://13.70.26.4:8080';
+  static const String environment = String.fromEnvironment(
+    'APP_ENV',
+    defaultValue: 'development',
+  );
+  static const String _configuredBaseUrl = String.fromEnvironment(
+    'API_BASE_URL',
+  );
+  static const String _configuredMqttHost = String.fromEnvironment('MQTT_HOST');
+  static const int _configuredMqttPort = int.fromEnvironment(
+    'MQTT_PORT',
+    defaultValue: 0,
+  );
+  static const bool mqttUseTls = bool.fromEnvironment(
+    'MQTT_USE_TLS',
+    defaultValue: false,
+  );
+  static const String mqttUsername = String.fromEnvironment('MQTT_USERNAME');
+  static const String mqttPassword = String.fromEnvironment('MQTT_PASSWORD');
 
-  // 本地 Docker 開發（Android 模擬器請用 10.0.2.2）
-  // static const String baseUrl = 'http://10.0.2.2:8080';
+  static String get baseUrl {
+    if (_configuredBaseUrl.isNotEmpty) return _configuredBaseUrl;
+    if (environment == 'development') return 'http://10.0.2.2:8080';
+    throw StateError('$environment 建置必須設定 API_BASE_URL');
+  }
 
-  // MQTT Broker（EMQX，預設 1883）
-  static const String mqttBrokerHost = '13.70.26.4';
-  static const int mqttBrokerPort = 1883;
+  static String get mqttBrokerHost {
+    if (_configuredMqttHost.isNotEmpty) return _configuredMqttHost;
+    if (environment == 'development') return '10.0.2.2';
+    throw StateError('$environment 建置必須設定 MQTT_HOST');
+  }
 
-  // 實體機連本地 Docker 時改為主機 IP，例如：
-  // static const String mqttBrokerHost = '192.168.0.249';
+  static int get mqttBrokerPort {
+    if (_configuredMqttPort > 0) return _configuredMqttPort;
+    if (environment == 'development') return 1883;
+    throw StateError('$environment 建置必須設定 MQTT_PORT');
+  }
+
+  static void validate() {
+    final apiUri = Uri.parse(baseUrl);
+    final mqttHost = mqttBrokerHost;
+    mqttBrokerPort;
+    if (environment == 'production') {
+      const forbiddenHosts = {'localhost', '127.0.0.1', '10.0.2.2'};
+      if (apiUri.scheme != 'https' || forbiddenHosts.contains(apiUri.host)) {
+        throw StateError('production API_BASE_URL 必須使用非本機 HTTPS');
+      }
+      if (forbiddenHosts.contains(mqttHost) ||
+          !mqttUseTls ||
+          mqttUsername.isEmpty ||
+          mqttPassword.isEmpty) {
+        throw StateError('production MQTT 必須使用非本機 TLS Broker 與身分驗證');
+      }
+    }
+  }
 
   static String get apiHost {
     final uri = Uri.parse(baseUrl);

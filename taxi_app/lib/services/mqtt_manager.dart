@@ -16,7 +16,10 @@ class MqttManager {
 
   bool _isConnected = false;
   bool _isConnecting = false;
-  StreamSubscription<List<MqttReceivedMessage<MqttMessage>>>? _updatesSubscription;
+  StreamSubscription<List<MqttReceivedMessage<MqttMessage>>>?
+  _updatesSubscription;
+  Timer? _reconnectTimer;
+  bool _isDisposed = false;
 
   bool get isConnected => _isConnected;
 
@@ -29,21 +32,23 @@ class MqttManager {
   MqttManager({
     required this.deviceId,
     required this.brokerHost,
-    this.brokerPort = AppConfig.mqttBrokerPort,
-  });
+    int? brokerPort,
+  }) : brokerPort = brokerPort ?? AppConfig.mqttBrokerPort;
 
   /// 連接到 EMQX Broker
   Future<void> connect() async {
-    if (_isConnecting) return;
+    if (_isDisposed || _isConnecting) return;
     _isConnecting = true;
 
     try {
       await disconnect();
 
-      final clientId = 'taxi-app-$deviceId-${DateTime.now().millisecondsSinceEpoch}';
+      final clientId =
+          'taxi-app-$deviceId-${DateTime.now().millisecondsSinceEpoch}';
       final host = AppConfig.resolveMqttHost(brokerHost);
 
       _client = MqttServerClient.withPort(host, clientId, brokerPort);
+      _client!.secure = AppConfig.mqttUseTls;
       _client!.logging(on: false);
       _client!.keepAlivePeriod = AppConfig.mqttKeepAlive.inSeconds;
       _client!.autoReconnect = true;
@@ -59,6 +64,12 @@ class MqttManager {
           .withWillTopic(AppConfig.statusTopic(deviceId))
           .withWillMessage(jsonEncode({'status': 'offline'}))
           .withWillQos(MqttQos.atLeastOnce);
+      if (AppConfig.mqttUsername.isNotEmpty) {
+        connMessage.authenticateAs(
+          AppConfig.mqttUsername,
+          AppConfig.mqttPassword,
+        );
+      }
 
       _client!.connectionMessage = connMessage;
 
@@ -66,9 +77,7 @@ class MqttManager {
       await _client!.connect();
 
       if (_client!.connectionStatus?.state != MqttConnectionState.connected) {
-        throw Exception(
-          'MQTT 連線失敗: ${_client!.connectionStatus?.returnCode}',
-        );
+        throw Exception('MQTT 連線失敗: ${_client!.connectionStatus?.returnCode}');
       }
     } catch (e) {
       print('❌ MQTT 連線錯誤: $e');
@@ -80,6 +89,8 @@ class MqttManager {
   }
 
   void _onConnected() {
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
     _isConnected = true;
     print('✅ MQTT 已連接');
 
@@ -98,8 +109,10 @@ class MqttManager {
   }
 
   void _scheduleReconnect() {
-    Future.delayed(AppConfig.reconnectDelay, () {
-      if (!_isConnected && !_isConnecting) {
+    if (_isDisposed) return;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = Timer(AppConfig.reconnectDelay, () {
+      if (!_isDisposed && !_isConnected && !_isConnecting) {
         connect();
       }
     });
@@ -147,7 +160,10 @@ class MqttManager {
       return;
     }
 
-    if (longitude < -180 || longitude > 180 || latitude < -90 || latitude > 90) {
+    if (longitude < -180 ||
+        longitude > 180 ||
+        latitude < -90 ||
+        latitude > 90) {
       print('❌ 經緯度超出有效範圍');
       return;
     }
@@ -214,6 +230,9 @@ class MqttManager {
   }
 
   void dispose() {
+    _isDisposed = true;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
     disconnect();
   }
 }

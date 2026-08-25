@@ -42,12 +42,14 @@ class DesiredVideo {
 class DesiredPlaylist {
   final String? campaignId;
   final List<DesiredVideo> videos;
+  final String? contentVersion;
   final String? updatedAt;
   final Map<String, dynamic>? command;
 
   DesiredPlaylist({
     this.campaignId,
     required this.videos,
+    this.contentVersion,
     this.updatedAt,
     this.command,
   });
@@ -60,6 +62,7 @@ class DesiredPlaylist {
           .whereType<Map<String, dynamic>>()
           .map(DesiredVideo.fromJson)
           .toList(),
+      contentVersion: json['content_version'] as String?,
       updatedAt: json['updated_at'] as String?,
       command: json['command'] as Map<String, dynamic>?,
     );
@@ -71,6 +74,7 @@ class DesiredPlaylist {
   Map<String, dynamic> toJson() => {
     'campaign_id': campaignId,
     'videos': videos.map((v) => v.toJson()).toList(),
+    'content_version': contentVersion,
     'updated_at': updatedAt,
     'command': command,
   };
@@ -141,7 +145,8 @@ class EmergencyState {
     return EmergencyState(
       isAlarmActive: json['is_alarm_active'] as bool? ?? false,
       marqueeText: json['marquee_text'] as String? ?? '',
-      emergencyVideo: json['emergency_video'] as String? ?? 'earthquake_alert.mp4',
+      emergencyVideo:
+          json['emergency_video'] as String? ?? 'earthquake_alert.mp4',
       qrScanCount: json['qr_scan_count'] as int? ?? 0,
       type: json['type'] as String?,
     );

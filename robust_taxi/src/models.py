@@ -14,6 +14,7 @@ class DeviceModel:
             "desired": {
                 "campaign_id": None,
                 "videos": [],
+                "content_version": None,
                 "updated_at": None
             },
             "reported": {
@@ -245,4 +246,3 @@ class HeartbeatResponse:
         if detail:
             response["detail"] = detail
         return response, status_code
-

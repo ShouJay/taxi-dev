@@ -16,7 +16,17 @@ from datetime import datetime
 import os
 
 # 導入配置和模組
-from src.config import FLASK_HOST, FLASK_PORT, FLASK_DEBUG, LOG_LEVEL, MONGODB_URI, DATABASE_NAME
+from src.config import (
+    APP_ENV,
+    DATABASE_NAME,
+    FLASK_DEBUG,
+    FLASK_HOST,
+    FLASK_PORT,
+    LOG_LEVEL,
+    MONGODB_URI,
+    SECRET_KEY,
+    UPLOAD_ROOT,
+)
 from src.database import Database
 from src.services import AdDecisionService
 from src.models import HeartbeatRequest, HeartbeatResponse
@@ -30,13 +40,11 @@ from src.mqtt_client import get_mqtt_publisher
 # 應用程序設置
 # ============================================================================
 
-print("!!!!!!!!!👉 現在的 MONGODB_URI =", MONGODB_URI)
-
-
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'your-secret-key-change-in-production'
+app.config['SECRET_KEY'] = SECRET_KEY
 app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024 * 1024  # 10GB 限制
 CORS(app)
+os.makedirs(UPLOAD_ROOT, exist_ok=True)
 
 # 初始化 MQTT 發布器
 mqtt_publisher = get_mqtt_publisher()
@@ -302,20 +310,27 @@ def index():
 def health_check():
     """健康檢查端點"""
     try:
-        is_healthy = db.health_check()
+        database_healthy = db.health_check()
+        mqtt_healthy = mqtt_publisher.is_connected()
+        storage_healthy = os.path.isdir(UPLOAD_ROOT) and os.access(
+            UPLOAD_ROOT,
+            os.W_OK,
+        )
         
-        if is_healthy:
+        if database_healthy and mqtt_healthy and storage_healthy:
             return jsonify({
                 "status": "healthy",
                 "database": "connected",
-                "mqtt": "connected" if mqtt_publisher.is_connected() else "disconnected",
+                "mqtt": "connected",
+                "storage": "writable",
                 "active_devices": db.devices.count_documents({"status": "online"})
             }), 200
         else:
             return jsonify({
                 "status": "unhealthy",
-                "database": "disconnected",
-                "mqtt": "disconnected"
+                "database": "connected" if database_healthy else "disconnected",
+                "mqtt": "connected" if mqtt_healthy else "disconnected",
+                "storage": "writable" if storage_healthy else "unavailable",
             }), 503
     except Exception as e:
         return jsonify({
@@ -446,9 +461,28 @@ def qrcode_entry():
     # 例如導向 Google：
     return redirect("https://drive.google.com/drive/folders/1MIyWQckNgUPCb3kTl4DbkFZ15Uc4dCTM")
 
-@app.route('/init_db', methods=['GET'])
+@app.route('/migrate_db', methods=['POST'])
+def migrate_database():
+    """建立必要索引。此操作可重複執行，不會刪除業務資料。"""
+    if db.create_indexes():
+        return jsonify({
+            "status": "success",
+            "message": "資料庫 migration 完成",
+        }), 200
+    return jsonify({
+        "status": "error",
+        "message": "資料庫 migration 失敗",
+    }), 500
+
+
+@app.route('/init_db', methods=['POST'])
 def init_database():
-    """初始化數據庫端點"""
+    """僅供開發環境重置與寫入範例資料。"""
+    if APP_ENV != 'development':
+        return jsonify({
+            "status": "error",
+            "message": "init_db 僅限 development 環境",
+        }), 403
     try:
         # 創建地理空間索引
         index_success = db.create_indexes()
@@ -669,7 +703,9 @@ if __name__ == '__main__':
     else:
         logger.info("MQTT 端點請連線至設定中的 EMQX Broker。")
         logger.info(f"HTTP 端點: http://localhost:{FLASK_PORT}")
-        logger.info(f"請先訪問 http://localhost:{FLASK_PORT}/init_db 初始化數據庫")
+        logger.info(
+            f"請使用 POST http://localhost:{FLASK_PORT}/migrate_db 建立資料庫索引"
+        )
 
         # 僅在本地開發時啟動
         app.run(

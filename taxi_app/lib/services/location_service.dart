@@ -126,21 +126,22 @@ class LocationService {
 
   void _startLocationStream() {
     _positionSubscription?.cancel();
-    _positionSubscription = Geolocator.getPositionStream(
-      locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: 5,
-      ),
-    ).listen(
-      (position) {
-        _currentPosition = position;
-        _sendLocationUpdate(position);
-        onLocationUpdate?.call(position);
-      },
-      onError: (error) {
-        onError?.call('位置監聽錯誤: $error');
-      },
-    );
+    _positionSubscription =
+        Geolocator.getPositionStream(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.high,
+            distanceFilter: 5,
+          ),
+        ).listen(
+          (position) {
+            _currentPosition = position;
+            _sendLocationUpdate(position);
+            onLocationUpdate?.call(position);
+          },
+          onError: (error) {
+            onError?.call('位置監聽錯誤: $error');
+          },
+        );
   }
 
   void _sendLocationUpdate(Position position) {

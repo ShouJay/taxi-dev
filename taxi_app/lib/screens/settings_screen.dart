@@ -6,7 +6,6 @@ import '../services/mqtt_manager.dart';
 import '../managers/playback_manager.dart';
 import '../services/download_manager.dart';
 import '../services/location_service.dart';
-import '../models/download_info.dart';
 
 class SettingsScreen extends StatefulWidget {
   final MqttManager mqttManager;
@@ -52,7 +51,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   void initState() {
     super.initState();
-    _deviceIdController = TextEditingController(text: widget.mqttManager.deviceId);
+    _deviceIdController = TextEditingController(
+      text: widget.mqttManager.deviceId,
+    );
     _brokerHostController = TextEditingController(
       text: widget.mqttManager.brokerHost,
     );
@@ -171,7 +172,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 12),
             _buildStatusCard(
               title: 'Broker',
-              value: '${widget.mqttManager.brokerHost}:${AppConfig.mqttBrokerPort}',
+              value:
+                  '${widget.mqttManager.brokerHost}:${AppConfig.mqttBrokerPort}',
               icon: Icons.dns,
               color: Colors.blue,
             ),
@@ -258,8 +260,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
           value: _deviceRole,
           isExpanded: true,
           items: const [
-            DropdownMenuItem(value: 'SCREEN_A', child: Text('SCREEN_A — 廣告屏（跑馬燈）')),
-            DropdownMenuItem(value: 'SCREEN_B', child: Text('SCREEN_B — 互動屏（QR / 警報）')),
+            DropdownMenuItem(
+              value: 'SCREEN_A',
+              child: Text('SCREEN_A — 廣告屏（跑馬燈）'),
+            ),
+            DropdownMenuItem(
+              value: 'SCREEN_B',
+              child: Text('SCREEN_B — 互動屏（QR / 警報）'),
+            ),
           ],
           onChanged: (value) {
             if (value != null) setState(() => _deviceRole = value);
@@ -314,11 +322,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title, style: TextStyle(fontSize: 14, color: Colors.grey[600])),
+                Text(
+                  title,
+                  style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+                ),
                 const SizedBox(height: 4),
                 Text(
                   value,
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ],
             ),
@@ -336,7 +350,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
         border: Border.all(color: Colors.blue.withOpacity(0.3)),
       ),
       child: SwitchListTile(
-        title: const Text('管理員模式', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: const Text(
+          '管理員模式',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
         subtitle: Text(
           '開啟後於播放畫面顯示調試資訊',
           style: TextStyle(color: Colors.grey[600]),
@@ -438,7 +455,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Widget _buildPlaylistSection() {
     final playlist = widget.playbackManager.getFullPlaylist();
-    final systemPlaylist = playlist.where((item) => !item.isLocalVideo).toList();
+    final systemPlaylist = playlist
+        .where((item) => !item.isLocalVideo)
+        .toList();
     final localPlaylist = playlist.where((item) => item.isLocalVideo).toList();
 
     return Column(
@@ -467,7 +486,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+        Text(
+          title,
+          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+        ),
         const SizedBox(height: 8),
         if (items.isEmpty)
           _buildEmptyPlaylistCard(emptyHint)
@@ -491,7 +513,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
         color: Colors.grey.withOpacity(0.1),
         borderRadius: BorderRadius.circular(12),
       ),
-      child: Text(hint, style: const TextStyle(color: Colors.grey), textAlign: TextAlign.center),
+      child: Text(
+        hint,
+        style: const TextStyle(color: Colors.grey),
+        textAlign: TextAlign.center,
+      ),
     );
   }
 
@@ -499,7 +525,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Card(
       child: ListTile(
         leading: Icon(
-          item.isCurrentPlaying ? Icons.play_circle_filled : Icons.video_library,
+          item.isCurrentPlaying
+              ? Icons.play_circle_filled
+              : Icons.video_library,
           color: item.isCurrentPlaying ? Colors.green : Colors.blue,
         ),
         title: Text(item.title),
@@ -521,7 +549,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
         title: const Text('確認刪除'),
         content: Text('確定要刪除 "${item.filename}" 嗎？'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('取消')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
             style: TextButton.styleFrom(foregroundColor: Colors.red),
@@ -566,7 +597,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(task.downloadInfo.filename, style: const TextStyle(fontWeight: FontWeight.bold)),
+              Text(
+                task.downloadInfo.filename,
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
               const SizedBox(height: 8),
               LinearProgressIndicator(value: task.progress / 100),
               Text('${task.progress}%'),

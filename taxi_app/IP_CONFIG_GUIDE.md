@@ -21,7 +21,7 @@ Flutter 應用程式正在嘗試連接到 `http://10.0.2.2:8080`，但這個 IP 
 #### Android 模擬器
 ```bash
 # 清除應用數據
-adb shell pm clear com.example.taxi_app
+adb shell pm clear com.robusttaxi.taxiapp.dev
 ```
 
 #### iOS 模擬器

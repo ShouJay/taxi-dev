@@ -46,27 +46,40 @@ class _MainScreenState extends State<MainScreen> {
   @override
   void initState() {
     super.initState();
+    _subscribePlaybackManager(widget.playbackManager);
+  }
 
-    // 監聽播放狀態變化
-    widget.playbackManager.onStateChanged = (state) {
-      if (mounted) {
-        setState(() {});
-      }
-    };
+  void _handleStateChanged(PlaybackState _) {
+    if (mounted) setState(() {});
+  }
 
-    // 監聽播放項目變化
-    widget.playbackManager.onItemChanged = (item) {
-      if (mounted) {
-        setState(() {});
-      }
-    };
+  void _handleItemChanged(PlaybackItem? _) {
+    if (mounted) setState(() {});
+  }
 
-    // 監聽播放啟用狀態變化
-    widget.playbackManager.onPlaybackEnabledChanged = (enabled) {
-      if (mounted) {
-        setState(() {});
-      }
-    };
+  void _handlePlaybackEnabledChanged(bool _) {
+    if (mounted) setState(() {});
+  }
+
+  void _subscribePlaybackManager(PlaybackManager manager) {
+    manager.addStateListener(_handleStateChanged);
+    manager.addItemListener(_handleItemChanged);
+    manager.addPlaybackEnabledListener(_handlePlaybackEnabledChanged);
+  }
+
+  void _unsubscribePlaybackManager(PlaybackManager manager) {
+    manager.removeStateListener(_handleStateChanged);
+    manager.removeItemListener(_handleItemChanged);
+    manager.removePlaybackEnabledListener(_handlePlaybackEnabledChanged);
+  }
+
+  @override
+  void didUpdateWidget(covariant MainScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.playbackManager != widget.playbackManager) {
+      _unsubscribePlaybackManager(oldWidget.playbackManager);
+      _subscribePlaybackManager(widget.playbackManager);
+    }
   }
 
   @override
@@ -272,9 +285,7 @@ class _MainScreenState extends State<MainScreen> {
     }
 
     // 顯示影片：維持原片比例（contain），直立＋橫向片時自動轉向；管理員可額外旋轉
-    return SizedBox.expand(
-      child: _buildAdaptiveVideo(controller),
-    );
+    return SizedBox.expand(child: _buildAdaptiveVideo(controller));
   }
 
   /// 依螢幕方向與影片比例自動旋轉／縮放；[BoxFit.contain] 保留完整畫面不裁切
@@ -300,7 +311,11 @@ class _MainScreenState extends State<MainScreen> {
           alignment: Alignment.center,
           child: RotatedBox(
             quarterTurns: totalQuarterTurns,
-            child: SizedBox(width: size.width, height: size.height, child: video),
+            child: SizedBox(
+              width: size.width,
+              height: size.height,
+              child: video,
+            ),
           ),
         ),
       ),
@@ -780,6 +795,7 @@ class _MainScreenState extends State<MainScreen> {
 
   @override
   void dispose() {
+    _unsubscribePlaybackManager(widget.playbackManager);
     super.dispose();
   }
 }

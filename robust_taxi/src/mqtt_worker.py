@@ -93,7 +93,20 @@ class MqttWorker:
             if isinstance(existing.get("shadow"), dict)
             else None
         )
-        if current_desired == desired:
+        current_version = (
+            current_desired.get("content_version")
+            if isinstance(current_desired, dict)
+            else None
+        )
+        if current_version is None and isinstance(current_desired, dict):
+            current_version = self.ad_service.playlist_content_version(current_desired)
+
+        if current_version == desired.get("content_version"):
+            logger.debug("desired unchanged, skip publish: %s", device_id)
+            return
+
+        if not self.publisher.publish_desired(device_id, desired):
+            logger.error("desired publish failed, will retry: %s", device_id)
             return
 
         self.db.devices.update_one(
@@ -106,7 +119,6 @@ class MqttWorker:
             },
             upsert=False,
         )
-        self.publisher.publish_desired(device_id, desired)
 
     def _handle_reported(self, topic, payload):
         device_id = self._device_id_from_topic(topic)
@@ -141,4 +153,3 @@ class MqttWorker:
     def run_forever(self):
         self.client.connect(MQTT_BROKER_HOST, MQTT_BROKER_PORT, keepalive=60)
         self.client.loop_forever()
-

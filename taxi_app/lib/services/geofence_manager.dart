@@ -7,7 +7,12 @@ class GeofenceManager {
   String? _currentActiveCampaignId;
 
   // 觸發事件：傳遞你的 Command 列表
-  Function(String campaignId, List<PlayAdCommand> playCmds, List<DownloadVideoCommand> dlCmds)? onEnterHighestPriorityZone;
+  Function(
+    String campaignId,
+    List<PlayAdCommand> playCmds,
+    List<DownloadVideoCommand> dlCmds,
+  )?
+  onEnterHighestPriorityZone;
   Function()? onExitAllZones;
 
   void updateLbsCampaigns(List<LbsCampaign> campaigns) {

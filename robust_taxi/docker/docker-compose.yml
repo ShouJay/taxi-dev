@@ -8,7 +8,12 @@ services:
     volumes:
       - mongodb_data:/data/db
     environment:
-      MONGO_INITDB_DATABASE: smart_taxi_ads
+      MONGO_INITDB_DATABASE: ${DATABASE_NAME:?Set DATABASE_NAME in docker/.env}
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
     networks:
       - smart_taxi_network
 
@@ -24,7 +29,12 @@ services:
     volumes:
       - emqx_data:/opt/emqx/data
     environment:
-      EMQX_ALLOW_ANONYMOUS: "true"
+      EMQX_ALLOW_ANONYMOUS: ${EMQX_ALLOW_ANONYMOUS:?Set EMQX_ALLOW_ANONYMOUS in docker/.env}
+    healthcheck:
+      test: ["CMD", "emqx", "ctl", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
     networks:
       - smart_taxi_network
 
@@ -37,18 +47,31 @@ services:
     ports:
       - "8080:8080"
     depends_on:
-      - mongodb
-      - emqx
+      mongodb:
+        condition: service_healthy
+      emqx:
+        condition: service_healthy
     environment:
-      - MONGODB_URI=mongodb://mongodb:27017/
-      - DATABASE_NAME=smart_taxi_ads
-      - FLASK_HOST=0.0.0.0
-      - FLASK_PORT=8080
-      - FLASK_DEBUG=False
-      - MQTT_BROKER_HOST=emqx
-      - MQTT_BROKER_PORT=1883
-      - API_BASE_URL=http://smart_taxi_service:8080
-    command: python run_app.py
+      - MONGODB_URI=${MONGODB_URI:?Set MONGODB_URI in docker/.env}
+      - DATABASE_NAME=${DATABASE_NAME:?Set DATABASE_NAME in docker/.env}
+      - APP_ENV=${APP_ENV:?Set APP_ENV in docker/.env}
+      - SECRET_KEY=${SECRET_KEY:?Set SECRET_KEY in docker/.env}
+      - FLASK_HOST=${FLASK_HOST:?Set FLASK_HOST in docker/.env}
+      - FLASK_PORT=${FLASK_PORT:?Set FLASK_PORT in docker/.env}
+      - FLASK_DEBUG=${FLASK_DEBUG:?Set FLASK_DEBUG in docker/.env}
+      - MQTT_BROKER_HOST=${MQTT_BROKER_HOST:?Set MQTT_BROKER_HOST in docker/.env}
+      - MQTT_BROKER_PORT=${MQTT_BROKER_PORT:?Set MQTT_BROKER_PORT in docker/.env}
+      - MQTT_CLIENT_ID_PREFIX=${MQTT_CLIENT_ID_PREFIX:?Set MQTT_CLIENT_ID_PREFIX in docker/.env}
+      - MQTT_USERNAME=${MQTT_USERNAME-}
+      - MQTT_PASSWORD=${MQTT_PASSWORD-}
+      - API_BASE_URL=${API_BASE_URL:?Set API_BASE_URL in docker/.env}
+      - CDN_BASE_URL=${CDN_BASE_URL-}
+      - UPLOAD_ROOT=${UPLOAD_ROOT:?Set UPLOAD_ROOT in docker/.env}
+      - DEFAULT_VIDEO=${DEFAULT_VIDEO:?Set DEFAULT_VIDEO in docker/.env}
+      - LOG_LEVEL=${LOG_LEVEL:?Set LOG_LEVEL in docker/.env}
+    command: gunicorn -w 2 -b 0.0.0.0:8080 src.app:app --access-logfile - --error-logfile -
+    volumes:
+      - video_data:/app/uploads
     networks:
       - smart_taxi_network
 
@@ -59,20 +82,30 @@ services:
     container_name: smart_taxi_mqtt_worker
     restart: always
     depends_on:
-      - mongodb
-      - emqx
+      mongodb:
+        condition: service_healthy
+      emqx:
+        condition: service_healthy
     environment:
-      - MONGODB_URI=mongodb://mongodb:27017/
-      - DATABASE_NAME=smart_taxi_ads
-      - MQTT_BROKER_HOST=emqx
-      - MQTT_BROKER_PORT=1883
-      - API_BASE_URL=http://smart_taxi_service:8080
+      - MONGODB_URI=${MONGODB_URI:?Set MONGODB_URI in docker/.env}
+      - DATABASE_NAME=${DATABASE_NAME:?Set DATABASE_NAME in docker/.env}
+      - APP_ENV=${APP_ENV:?Set APP_ENV in docker/.env}
+      - MQTT_BROKER_HOST=${MQTT_BROKER_HOST:?Set MQTT_BROKER_HOST in docker/.env}
+      - MQTT_BROKER_PORT=${MQTT_BROKER_PORT:?Set MQTT_BROKER_PORT in docker/.env}
+      - MQTT_CLIENT_ID_PREFIX=${MQTT_CLIENT_ID_PREFIX:?Set MQTT_CLIENT_ID_PREFIX in docker/.env}
+      - MQTT_USERNAME=${MQTT_USERNAME-}
+      - MQTT_PASSWORD=${MQTT_PASSWORD-}
+      - API_BASE_URL=${API_BASE_URL:?Set API_BASE_URL in docker/.env}
+      - LOG_LEVEL=${LOG_LEVEL:?Set LOG_LEVEL in docker/.env}
     command: python run_mqtt_worker.py
+    healthcheck:
+      disable: true
     networks:
       - smart_taxi_network
 
 volumes:
   mongodb_data:
+  video_data:
   emqx_data:
 
 networks:

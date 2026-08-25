@@ -1,16 +1,39 @@
-# taxi_app
+# Taxi 車載廣告 App
 
-A new Flutter project.
+Flutter 車載播放端，透過 MQTT 同步播放清單，並使用 HTTP 分片下載影片。
 
-## Getting Started
+## 開發建置
 
-This project is a starting point for a Flutter application.
+```bash
+flutter pub get
+flutter run --flavor dev --dart-define-from-file=config/dev.json
+flutter build apk --debug --flavor dev --dart-define-from-file=config/dev.json
+```
 
-A few resources to get you started if this is your first Flutter project:
+Android 模擬器使用 `10.0.2.2` 連到本機 Docker。實體平板請複製 `config/dev.json`，將 API 與 MQTT host 改為開發機的 LAN IP。
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+## Staging / Production
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+1. 複製 `config/staging.example.json` 或 `config/production.example.json`。
+2. 填入 HTTPS API、TLS MQTT Broker 與身分驗證。
+3. 不要將真實密碼設定檔 commit 進 Git。
+
+```bash
+flutter build apk \
+  --release \
+  --flavor production \
+  --dart-define-from-file=config/production.json
+```
+
+Production 建置會拒絕 localhost、非 HTTPS API、非 TLS MQTT 或缺少 MQTT 身分驗證的設定。
+
+## Android 簽署
+
+複製 `android/key.properties.example` 為 `android/key.properties`，並指向正式 keystore。`key.properties` 和 keystore 已被 Git 忽略；production release 在缺少簽署設定時會直接失敗。
+
+## 驗證
+
+```bash
+flutter analyze --no-fatal-infos --no-fatal-warnings
+flutter test
+```

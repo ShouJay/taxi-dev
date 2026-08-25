@@ -1,0 +1,8 @@
+.git
+.DS_Store
+__pycache__
+*.pyc
+venv
+uploads
+device_downloads
+webapp_log_*.txt

@@ -1,0 +1,8 @@
+services:
+  smart_taxi_service:
+    volumes:
+      - type: bind
+        source: ${VIDEO_DATA_PATH:?Set VIDEO_DATA_PATH to the mounted Azure data disk directory}
+        target: /app/uploads
+        bind:
+          create_host_path: false

@@ -30,9 +30,8 @@ class ShadowSyncService {
   // 回調
   Function(String campaignId, List<PlaybackItem> playlist)? onCampaignReady;
   Function()? onRevertToLocal;
-  Future<void>Function(PlayAdCommand)? onOverridePlay;
-  // 💡 新增：背景下載完成的回調，用來通知 main.dart 刷新播放清單
-  Function()? onDownloadCompleted;
+  Future<void> Function(PlayAdCommand)? onOverridePlay;
+  final Set<FutureOr<void> Function()> _downloadCompletedListeners = {};
 
   ShadowSyncService({
     required this.mqttManager,
@@ -42,6 +41,23 @@ class ShadowSyncService {
 
   DesiredPlaylist? get currentDesired => _currentDesired;
 
+  void addDownloadCompletedListener(FutureOr<void> Function() listener) =>
+      _downloadCompletedListeners.add(listener);
+
+  void removeDownloadCompletedListener(FutureOr<void> Function() listener) =>
+      _downloadCompletedListeners.remove(listener);
+
+  Future<void> _notifyDownloadCompleted() async {
+    for (final listener in List<FutureOr<void> Function()>.from(
+      _downloadCompletedListeners,
+    )) {
+      try {
+        await listener();
+      } catch (error) {
+        print('⚠️ 下載完成監聽器執行失敗: $error');
+      }
+    }
+  }
 
   /// 處理後端下發的 desired 播放清單與指令
   Future<void> handleDesired(DesiredPlaylist desired) async {
@@ -71,15 +87,22 @@ class ShadowSyncService {
     if (_currentDesired != null) {
       final oldPlaylist = _currentDesired!;
 
-      bool isBasicEqual = oldPlaylist.campaignId == desired.campaignId &&
-          oldPlaylist.updatedAt == desired.updatedAt &&
+      if (oldPlaylist.contentVersion != null &&
+          desired.contentVersion != null &&
+          oldPlaylist.contentVersion == desired.contentVersion) {
+        return;
+      }
+
+      bool isBasicEqual =
+          oldPlaylist.campaignId == desired.campaignId &&
           oldPlaylist.videos.length == desired.videos.length;
 
       if (isBasicEqual) {
         bool isVideosIdentical = true;
         for (int i = 0; i < desired.videos.length; i++) {
           if (oldPlaylist.videos[i].videoId != desired.videos[i].videoId ||
-              oldPlaylist.videos[i].videoFilename != desired.videos[i].videoFilename ||
+              oldPlaylist.videos[i].videoFilename !=
+                  desired.videos[i].videoFilename ||
               oldPlaylist.videos[i].md5 != desired.videos[i].md5) {
             isVideosIdentical = false;
             break;
@@ -93,13 +116,17 @@ class ShadowSyncService {
     }
 
     // 💡 【雙重防禦】空清單攔截
-    if (desired.videos.isEmpty && _currentDesired?.videos.isEmpty == true && _activeCampaignId == null) {
+    if (desired.videos.isEmpty &&
+        _currentDesired?.videos.isEmpty == true &&
+        _activeCampaignId == null) {
       print('📭 兩次 desired 皆為空且已處於本地播放，忽略不重複觸發。');
       _currentDesired = desired;
       return;
     }
 
-    print('📋 對齊 desired: campaign=${desired.campaignId}, videos=${desired.videos.length}');
+    print(
+      '📋 對齊 desired: campaign=${desired.campaignId}, videos=${desired.videos.length}',
+    );
 
     _currentDesired = desired;
     _errors.clear();
@@ -163,7 +190,7 @@ class ShadowSyncService {
           if (isReadyToPlay) {
             print('✅ [自動下載] 影片下載成功，準備切換插播！');
             _protectedFilenames.add(videoFilename);
-            onDownloadCompleted?.call();
+            await _notifyDownloadCompleted();
           }
         } else {
           print('❌ [自動下載] 無法啟動下載任務 (可能已在下載中，或無法獲取下載資訊)');
@@ -181,7 +208,8 @@ class ShadowSyncService {
           command: 'PLAY_VIDEO',
           videoFilename: videoFilename,
           advertisementId: advertisementId,
-          advertisementName: cmd['advertisement_name'] as String? ?? videoFilename,
+          advertisementName:
+              cmd['advertisement_name'] as String? ?? videoFilename,
           trigger: cmd['trigger'] as String? ?? 'admin_override',
           priority: 'override',
           timestamp: DateTime.now(),
@@ -195,7 +223,8 @@ class ShadowSyncService {
         ReportedError(
           videoId: advertisementId.isNotEmpty ? advertisementId : 'unknown',
           code: 'FILE_NOT_READY',
-          message: 'Push play failed: video file [$videoFilename] is not ready (missing or download failed).',
+          message:
+              'Push play failed: video file [$videoFilename] is not ready (missing or download failed).',
         ),
       );
     }
@@ -215,14 +244,16 @@ class ShadowSyncService {
       // 💡 關鍵修復：把獨立下載的檔案加入免死金牌名單
       _protectedFilenames.add(filename);
 
-      print('📥 [獨立下載] 開始下載任務: ${downloadCmd.advertisementName}, 檔名: $filename');
+      print(
+        '📥 [獨立下載] 開始下載任務: ${downloadCmd.advertisementName}, 檔名: $filename',
+      );
 
       _videoIdToFilename[downloadCmd.advertisementId] = filename;
 
       if (await downloadManager.isVideoExists(filename)) {
         print('✅ [獨立下載] 影片已存在本地，忽略下載: $filename');
         _downloadProgress[downloadCmd.advertisementId] = 100;
-        onDownloadCompleted?.call();
+        await _notifyDownloadCompleted();
         await _publishReported();
         return;
       }
@@ -238,7 +269,7 @@ class ShadowSyncService {
 
           if (task.status == DownloadStatus.completed) {
             print('🎉 [獨立下載] 影片下載完成！通知系統加入本地清單: $filename');
-            onDownloadCompleted?.call();
+            unawaited(_notifyDownloadCompleted());
             publishReportedNow();
           }
         },
@@ -317,7 +348,8 @@ class ShadowSyncService {
       expectedMd5: video.md5,
       onProgress: (task) {
         _downloadProgress[video.videoId] = task.progress;
-        if (task.status == DownloadStatus.completed && task.outputFile != null) {
+        if (task.status == DownloadStatus.completed &&
+            task.outputFile != null) {
           _videoIdToFilename[video.videoId] = task.downloadInfo.filename;
         }
       },
@@ -415,7 +447,9 @@ class ShadowSyncService {
     final localVideos = await downloadManager.getAllDownloadedVideos();
     final accessTimes = await _loadAccessTimes();
 
-    final toDelete = localVideos.where((f) => !keepFilenames.contains(f)).toList();
+    final toDelete = localVideos
+        .where((f) => !keepFilenames.contains(f))
+        .toList();
     toDelete.sort((a, b) {
       final ta = accessTimes[a] ?? 0;
       final tb = accessTimes[b] ?? 0;
@@ -474,8 +508,11 @@ class ShadowSyncService {
 
     // 💡 2. 判斷播放模式 (對應前端 JS 的 state.mode)
     String currentMode = 'offline';
-    if (playbackManager.state == PlaybackState.playing || playbackManager.state == PlaybackState.loading) {
-      currentMode = playbackManager.playbackMode == PlaybackMode.local ? 'local_playlist' : 'campaign';
+    if (playbackManager.state == PlaybackState.playing ||
+        playbackManager.state == PlaybackState.loading) {
+      currentMode = playbackManager.playbackMode == PlaybackMode.local
+          ? 'local_playlist'
+          : 'campaign';
       if (currentItem?.isOverride == true) {
         currentMode = 'override_play';
       }
@@ -506,7 +543,9 @@ class ShadowSyncService {
   /// 💡 新增：處理來自地理圍欄 (LBS) 的個別下載指令
   Future<void> handleLbsDownload(DownloadVideoCommand downloadCmd) async {
     final filename = downloadCmd.videoFilename;
-    print('📍 [LBS背景下載] 收到圍欄觸發下載: ${downloadCmd.advertisementName}, 檔名: $filename');
+    print(
+      '📍 [LBS背景下載] 收到圍欄觸發下載: ${downloadCmd.advertisementName}, 檔名: $filename',
+    );
 
     _videoIdToFilename[downloadCmd.advertisementId] = filename;
 
@@ -514,7 +553,7 @@ class ShadowSyncService {
     if (await downloadManager.isVideoExists(filename)) {
       print('✅ [LBS背景下載] 影片已存在本地，忽略下載: $filename');
       _downloadProgress[downloadCmd.advertisementId] = 100;
-      onDownloadCompleted?.call();
+      await _notifyDownloadCompleted();
       await _publishReported();
       return;
     }
@@ -530,7 +569,7 @@ class ShadowSyncService {
 
         if (task.status == DownloadStatus.completed) {
           print('🎉 [LBS背景下載] 影片下載完成！通知外部重新比對圍欄狀態: $filename');
-          onDownloadCompleted?.call();
+          unawaited(_notifyDownloadCompleted());
           publishReportedNow();
         }
       },
