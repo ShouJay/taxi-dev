@@ -38,7 +38,8 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   late TextEditingController _deviceIdController;
   late TextEditingController _brokerHostController;
-  late TextEditingController _apiServerUrlController;
+  late TextEditingController _brokerPortController;
+  late TextEditingController _apiUrlController;
   
   String _connectionStatus = '檢查中...';
   String _lastUpdate = '---';
@@ -59,7 +60,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _brokerHostController = TextEditingController(
       text: widget.mqttManager.brokerHost,
     );
-    _apiServerUrlController = TextEditingController(
+    _brokerPortController = TextEditingController(
+      text: widget.mqttManager.brokerPort.toString(),
+    );
+    _apiUrlController = TextEditingController(
       text: widget.downloadManager.baseUrl,
     );
     _isAdminMode = widget.isAdminMode;
@@ -185,20 +189,38 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 16),
             TextField(
               controller: _brokerHostController,
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 labelText: 'MQTT Broker 位址',
-                prefixIcon: Icon(Icons.hub),
-                border: OutlineInputBorder(),
+                hintText: '例如: 10.0.2.2 或 192.168.x.x',
+                prefixIcon: const Icon(Icons.hub, color: Colors.blue),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                filled: true,
+                fillColor: Colors.grey[50],
               ),
             ),
             const SizedBox(height: 16),
             TextField(
-              controller: _apiServerUrlController,
-              decoration: const InputDecoration(
-                labelText: 'API 伺服器 URL',
-                hintText: '例如: http://192.168.0.103:8080/api/v1',
-                prefixIcon: Icon(Icons.cloud),
-                border: OutlineInputBorder(),
+              controller: _brokerPortController,
+              decoration: InputDecoration(
+                labelText: 'MQTT Broker Port',
+                hintText: '例如: 1883',
+                prefixIcon: const Icon(Icons.numbers, color: Colors.blue),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                filled: true,
+                fillColor: Colors.grey[50],
+              ),
+              keyboardType: TextInputType.number,
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _apiUrlController,
+              decoration: InputDecoration(
+                labelText: 'API Server URL',
+                hintText: '例如: http://13.70.26.4:8080/api/v1',
+                prefixIcon: const Icon(Icons.link, color: Colors.blue),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                filled: true,
+                fillColor: Colors.grey[50],
               ),
             ),
             const SizedBox(height: 16),
@@ -454,24 +476,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
     try {
       final newDeviceId = _deviceIdController.text.trim();
       final newBrokerHost = _brokerHostController.text.trim();
-      final newApiUrl = _apiServerUrlController.text.trim();
+      final newBrokerPortStr = _brokerPortController.text.trim();
+      final newApiUrl = _apiUrlController.text.trim();
+      final newBrokerPort = int.tryParse(newBrokerPortStr);
 
-      if (newDeviceId.isEmpty || newBrokerHost.isEmpty || newApiUrl.isEmpty) {
-        _showMessage('欄位不可為空');
+      if (newDeviceId.isEmpty || newBrokerHost.isEmpty || newBrokerPort == null || newApiUrl.isEmpty) {
+        _showMessage('設備 ID、Broker 位址、Port 與 API URL 均不可為空或格式錯誤');
         return;
       }
 
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(AppConfig.deviceIdKey, newDeviceId);
       await prefs.setString(AppConfig.mqttBrokerHostKey, newBrokerHost);
+      await prefs.setInt(AppConfig.mqttBrokerPortKey, newBrokerPort);
       await prefs.setString(AppConfig.apiServerUrlKey, newApiUrl);
       
       await widget.onDeviceRoleChanged(_deviceRole);
 
       await widget.mqttManager.updateBrokerHost(newBrokerHost);
+      await widget.mqttManager.updateBrokerPort(newBrokerPort);
       await widget.mqttManager.updateDeviceId(newDeviceId);
       
-      // 動態更新 API Base URL
       widget.downloadManager.updateBaseUrl(newApiUrl);
 
       _showMessage('設定已儲存');
@@ -543,7 +568,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _downloadMonitoringTimer?.cancel();
     _deviceIdController.dispose();
     _brokerHostController.dispose();
-    _apiServerUrlController.dispose();
+    _brokerPortController.dispose();
+    _apiUrlController.dispose();
     super.dispose();
   }
 }

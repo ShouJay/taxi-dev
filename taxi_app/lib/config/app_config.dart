@@ -111,6 +111,7 @@ class AppConfig {
   static const String defaultDeviceId = 'taxi-AAB-1234-rooftop';
   static const String adminModeKey = 'admin_mode';
   static const String mqttBrokerHostKey = 'mqtt_broker_host';
+  static const String mqttBrokerPortKey = 'mqtt_broker_port';
   static const String deviceRoleKey = 'device_role';
   static const String defaultDeviceRole = 'SCREEN_A';
   static const String apiServerUrlKey = 'api_server_url';

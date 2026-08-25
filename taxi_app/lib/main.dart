@@ -104,6 +104,10 @@ class _AppContainerState extends State<AppContainer>
       if (savedBrokerHost != brokerHost) {
         await prefs.setString(AppConfig.mqttBrokerHostKey, brokerHost);
       }
+      
+      final savedBrokerPort = prefs.getInt(AppConfig.mqttBrokerPortKey);
+      final brokerPort = savedBrokerPort ?? AppConfig.mqttBrokerPort;
+
       final adminMode = prefs.getBool(AppConfig.adminModeKey) ?? false;
       _deviceRole =
           prefs.getString(AppConfig.deviceRoleKey) ??
@@ -112,7 +116,7 @@ class _AppContainerState extends State<AppContainer>
       final savedApiUrl = prefs.getString(AppConfig.apiServerUrlKey);
       final apiBaseUrl = savedApiUrl ?? AppConfig.apiBaseUrl;
 
-      _mqttManager = MqttManager(deviceId: deviceId, brokerHost: brokerHost);
+      _mqttManager = MqttManager(deviceId: deviceId, brokerHost: brokerHost, brokerPort: brokerPort);
       _downloadManager = DownloadManager(baseUrl: apiBaseUrl);
       _playbackManager = PlaybackManager(downloadManager: _downloadManager);
       _shadowSync = ShadowSyncService(

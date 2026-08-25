@@ -522,6 +522,12 @@ class PlaybackManager {
     // 停止當前播放
     await _stopCurrentVideo();
 
+    // 💡 增加硬體解碼器緩衝時間：確保 Android 底層資源 (Surface/Codec) 已徹底釋放，
+    // 避免部分設備（如三星）因切換過快出現 sbwcDecompService decode failed 的偶發性錯誤。
+    await Future.delayed(const Duration(milliseconds: 300));
+    
+    if (_isDisposed) return;
+
     // 設置狀態為載入中
     _setState(PlaybackState.loading);
     _setCurrentItem(item);

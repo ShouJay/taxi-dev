@@ -12,7 +12,7 @@ class MqttManager {
   MqttServerClient? _client;
   String deviceId;
   String brokerHost;
-  final int brokerPort;
+  int brokerPort;
 
   bool _isConnected = false;
   bool _isConnecting = false;
@@ -215,8 +215,19 @@ class MqttManager {
 
   /// 更新 Broker 位址並重連
   Future<void> updateBrokerHost(String newHost) async {
-    brokerHost = newHost;
-    await connect();
+    if (brokerHost != newHost) {
+      brokerHost = newHost;
+      print('🔄 更新 Broker Host，準備重新連線: $brokerHost');
+      await connect();
+    }
+  }
+
+  Future<void> updateBrokerPort(int newPort) async {
+    if (brokerPort != newPort) {
+      brokerPort = newPort;
+      print('🔄 更新 Broker Port，準備重新連線: $brokerPort');
+      await connect();
+    }
   }
 
   Future<void> disconnect() async {
