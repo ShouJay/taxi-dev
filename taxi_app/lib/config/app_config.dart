@@ -113,6 +113,7 @@ class AppConfig {
   static const String mqttBrokerHostKey = 'mqtt_broker_host';
   static const String deviceRoleKey = 'device_role';
   static const String defaultDeviceRole = 'SCREEN_A';
+  static const String apiServerUrlKey = 'api_server_url';
 
   /// 使用者是否啟用循環播放
   static const String playbackEnabledKey = 'playback_enabled';

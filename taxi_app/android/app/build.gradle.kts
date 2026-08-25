@@ -28,7 +28,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.robusttaxi.taxiapp"
+        applicationId = "com.robusttaxi.taxiappv2"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
@@ -43,17 +43,17 @@ android {
             dimension = "environment"
             applicationIdSuffix = ".dev"
             versionNameSuffix = "-dev"
-            resValue("string", "app_name", "Taxi Ads Dev")
+            resValue("string", "app_name", "Taxi Ads Dev V2")
         }
         create("staging") {
             dimension = "environment"
             applicationIdSuffix = ".staging"
             versionNameSuffix = "-staging"
-            resValue("string", "app_name", "Taxi Ads Staging")
+            resValue("string", "app_name", "Taxi Ads Staging V2")
         }
         create("production") {
             dimension = "environment"
-            resValue("string", "app_name", "Taxi Ads")
+            resValue("string", "app_name", "Taxi Ads V2")
         }
     }
 

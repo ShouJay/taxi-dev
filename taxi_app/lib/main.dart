@@ -109,8 +109,11 @@ class _AppContainerState extends State<AppContainer>
           prefs.getString(AppConfig.deviceRoleKey) ??
           AppConfig.defaultDeviceRole;
 
+      final savedApiUrl = prefs.getString(AppConfig.apiServerUrlKey);
+      final apiBaseUrl = savedApiUrl ?? AppConfig.apiBaseUrl;
+
       _mqttManager = MqttManager(deviceId: deviceId, brokerHost: brokerHost);
-      _downloadManager = DownloadManager(baseUrl: AppConfig.apiBaseUrl);
+      _downloadManager = DownloadManager(baseUrl: apiBaseUrl);
       _playbackManager = PlaybackManager(downloadManager: _downloadManager);
       _shadowSync = ShadowSyncService(
         mqttManager: _mqttManager,

@@ -33,11 +33,16 @@ class DownloadTask {
 
 /// 下載管理器
 class DownloadManager {
-  final String baseUrl;
+  String baseUrl;
   final Map<String, DownloadTask> _tasks = {};
   final Map<String, StreamController<DownloadTask>> _progressControllers = {};
 
   DownloadManager({required this.baseUrl});
+
+  void updateBaseUrl(String newBaseUrl) {
+    baseUrl = newBaseUrl;
+    print('🔄 DownloadManager baseUrl updated to: $baseUrl');
+  }
 
   /// 獲取下載資訊
   Future<DownloadInfo?> getDownloadInfo(
