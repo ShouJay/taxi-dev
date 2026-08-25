@@ -95,9 +95,15 @@ class _AppContainerState extends State<AppContainer>
           prefs.getString(AppConfig.deviceIdKey) ?? AppConfig.defaultDeviceId;
       await prefs.setString(AppConfig.deviceIdKey, deviceId);
 
+      final savedBrokerHost = prefs.getString(AppConfig.mqttBrokerHostKey);
       final brokerHost =
-          prefs.getString(AppConfig.mqttBrokerHostKey) ??
-          AppConfig.mqttBrokerHost;
+          savedBrokerHost == null ||
+              AppConfig.isLegacyLocalMqttHost(savedBrokerHost)
+          ? AppConfig.mqttBrokerHost
+          : savedBrokerHost;
+      if (savedBrokerHost != brokerHost) {
+        await prefs.setString(AppConfig.mqttBrokerHostKey, brokerHost);
+      }
       final adminMode = prefs.getBool(AppConfig.adminModeKey) ?? false;
       _deviceRole =
           prefs.getString(AppConfig.deviceRoleKey) ??

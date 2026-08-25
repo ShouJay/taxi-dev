@@ -48,6 +48,11 @@
 	<!-- 位置權限說明 -->
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>此應用需要訪問您的位置以提供基於位置的廣告服務</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+	</dict>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>此應用需要在背景運行時訪問您的位置以提供基於位置的廣告服務</string>
 	<key>NSLocationAlwaysUsageDescription</key>

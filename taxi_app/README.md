@@ -2,6 +2,11 @@
 
 Flutter 車載播放端，透過 MQTT 同步播放清單，並使用 HTTP 分片下載影片。
 
+開發環境目前連線 Azure VM：
+
+- HTTP API：`http://13.70.26.4:8080`
+- MQTT Broker：`13.70.26.4:1883`
+
 ## 開發建置
 
 ```bash
@@ -10,7 +15,7 @@ flutter run --flavor dev --dart-define-from-file=config/dev.json
 flutter build apk --debug --flavor dev --dart-define-from-file=config/dev.json
 ```
 
-Android 模擬器使用 `10.0.2.2` 連到本機 Docker。實體平板請複製 `config/dev.json`，將 API 與 MQTT host 改為開發機的 LAN IP。
+`config/dev.json` 與 development 預設值都指向上述 VM。舊版 App 若曾儲存 `localhost`、`10.0.2.2` 或舊 LAN IP，升級後會自動遷移到 VM。
 
 ## Staging / Production
 
