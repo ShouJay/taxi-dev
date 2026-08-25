@@ -23,6 +23,7 @@ class ShadowSyncService {
   final List<ReportedError> _errors = [];
   final Map<String, String> _videoIdToFilename = {};
   bool _isSyncing = false;
+  bool _isActivatingCampaign = false;
 
   // 💡 新增：用來記錄獨立下載與 LBS 影片的檔名，避免被誤刪
   final Set<String> _protectedFilenames = {};
@@ -48,6 +49,11 @@ class ShadowSyncService {
       _downloadCompletedListeners.remove(listener);
 
   Future<void> _notifyDownloadCompleted() async {
+    final desired = _currentDesired;
+    if (desired != null) {
+      await _activateDesiredIfCurrent(desired);
+    }
+
     for (final listener in List<FutureOr<void> Function()>.from(
       _downloadCompletedListeners,
     )) {
@@ -138,8 +144,8 @@ class ShadowSyncService {
       print('📭 desired 播放清單為空，維持本地播放');
       _activeCampaignId = null;
       onRevertToLocal?.call();
-    } else if (_allVideosReady(desired)) {
-      await _switchToCampaign(desired);
+    } else {
+      await _activateDesiredIfCurrent(desired);
     }
 
     await _publishReported();
@@ -330,13 +336,9 @@ class ShadowSyncService {
         _downloadProgress[video.videoId] = 0;
         await _downloadVideo(video);
         await _publishReported();
-
-        if (_allVideosReady(desired)) {
-          await _switchToCampaign(desired);
-          await _publishReported();
-          break;
-        }
       }
+
+      await _activateDesiredIfCurrent(desired);
     } finally {
       _isSyncing = false;
     }
@@ -351,6 +353,7 @@ class ShadowSyncService {
         if (task.status == DownloadStatus.completed &&
             task.outputFile != null) {
           _videoIdToFilename[video.videoId] = task.downloadInfo.filename;
+          unawaited(_notifyDownloadCompleted());
         }
       },
     );
@@ -384,6 +387,36 @@ class ShadowSyncService {
       if (progress < 100) return false;
     }
     return true;
+  }
+
+  bool _isCurrentDesired(DesiredPlaylist desired) {
+    final current = _currentDesired;
+    if (current == null) return false;
+
+    final currentVersion = current.contentVersion;
+    final desiredVersion = desired.contentVersion;
+    if (currentVersion != null && desiredVersion != null) {
+      return currentVersion == desiredVersion;
+    }
+    return identical(current, desired);
+  }
+
+  Future<void> _activateDesiredIfCurrent(DesiredPlaylist desired) async {
+    if (_isActivatingCampaign ||
+        !_isCurrentDesired(desired) ||
+        desired.videos.isEmpty ||
+        !_allVideosReady(desired)) {
+      return;
+    }
+
+    _isActivatingCampaign = true;
+    try {
+      if (_isCurrentDesired(desired) && _allVideosReady(desired)) {
+        await _switchToCampaign(desired);
+      }
+    } finally {
+      _isActivatingCampaign = false;
+    }
   }
 
   Future<void> _switchToCampaign(DesiredPlaylist desired) async {

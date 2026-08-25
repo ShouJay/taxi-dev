@@ -1049,12 +1049,16 @@ def init_admin_api(
                 latitude = trigger_location['latitude']
                 radius_km = trigger_radius / 1000  # 轉換為公里
                 
+                # 考慮緯度對經度距離的影響
+                lat_rad = math.radians(latitude)
+                cos_lat = max(math.cos(lat_rad), 0.0001)
+                
                 # 生成圓形的近似多邊形（16 個點）
                 points = []
                 for i in range(16):
                     angle = (2 * math.pi * i) / 16
-                    # 經緯度偏移計算（簡化版）
-                    dx = radius_km / 111.32 * math.cos(angle)  # 經度
+                    # 經緯度偏移計算
+                    dx = radius_km / (111.32 * cos_lat) * math.cos(angle)  # 經度
                     dy = radius_km / 110.574 * math.sin(angle)  # 緯度
                     points.append([longitude + dx, latitude + dy])
                 

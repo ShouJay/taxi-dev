@@ -140,12 +140,16 @@ class CampaignModel:
         # 將半徑轉換為公里
         radius_km = radius_meters / 1000
         
+        # 考慮緯度對經度距離的影響（1度經度長度約為 111.32 * cos(latitude) 公里）
+        lat_rad = math.radians(center_latitude)
+        cos_lat = max(math.cos(lat_rad), 0.0001)  # 避免除以零
+        
         # 生成圓形的近似多邊形（32個點，更精確）
         points = []
         for i in range(32):
             angle = (2 * math.pi * i) / 32
             # 經緯度偏移計算
-            dx = radius_km / 111.32 * math.cos(angle)  # 經度
+            dx = radius_km / (111.32 * cos_lat) * math.cos(angle)  # 經度
             dy = radius_km / 110.574 * math.sin(angle)  # 緯度
             points.append([center_longitude + dx, center_latitude + dy])
         
