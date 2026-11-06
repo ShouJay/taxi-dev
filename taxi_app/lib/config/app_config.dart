@@ -2,7 +2,7 @@ import 'dart:io';
 
 /// 應用程式配置
 class AppConfig {
-  static const String developmentServerHost = '13.70.26.4';
+  static const String developmentServerHost = '20.205.136.53';
 
   static const String environment = String.fromEnvironment(
     'APP_ENV',
@@ -18,7 +18,7 @@ class AppConfig {
   );
   static const bool mqttUseWebSocket = bool.fromEnvironment(
     'MQTT_USE_WEBSOCKET',
-    defaultValue: false,
+    defaultValue: true,
   );
   static const String mqttWebSocketPath = String.fromEnvironment(
     'MQTT_WEBSOCKET_PATH',
@@ -34,7 +34,7 @@ class AppConfig {
   static String get baseUrl {
     if (_configuredBaseUrl.isNotEmpty) return _configuredBaseUrl;
     if (environment == 'development') {
-      return 'http://$developmentServerHost:8080';
+      return 'http://$developmentServerHost';
     }
     throw StateError('$environment 建置必須設定 API_BASE_URL');
   }
@@ -47,7 +47,7 @@ class AppConfig {
 
   static int get mqttBrokerPort {
     if (_configuredMqttPort > 0) return _configuredMqttPort;
-    if (environment == 'development') return 1883;
+    if (environment == 'development') return 80;
     throw StateError('$environment 建置必須設定 MQTT_PORT');
   }
 
@@ -87,6 +87,7 @@ class AppConfig {
       '127.0.0.1',
       '10.0.2.2',
       '192.168.0.103',
+      '13.70.26.4',
     }.contains(host);
   }
 
