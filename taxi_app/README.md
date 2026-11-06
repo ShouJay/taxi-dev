@@ -4,8 +4,8 @@ Flutter 車載播放端，透過 MQTT 同步播放清單，並使用 HTTP 分片
 
 開發環境目前連線 Azure VM：
 
-- HTTP API：`http://13.70.26.4:8080`
-- MQTT Broker：`13.70.26.4:1883`
+- HTTP API：`http://13.70.26.4`
+- MQTT Broker：`ws://13.70.26.4/mqtt` (port 80)
 
 ## 開發建置
 

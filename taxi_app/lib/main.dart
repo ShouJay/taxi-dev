@@ -104,9 +104,16 @@ class _AppContainerState extends State<AppContainer>
       if (savedBrokerHost != brokerHost) {
         await prefs.setString(AppConfig.mqttBrokerHostKey, brokerHost);
       }
-      
+
       final savedBrokerPort = prefs.getInt(AppConfig.mqttBrokerPortKey);
-      final brokerPort = savedBrokerPort ?? AppConfig.mqttBrokerPort;
+      final brokerPort =
+          savedBrokerPort == null ||
+              (AppConfig.mqttUseWebSocket && savedBrokerPort == 1883)
+          ? AppConfig.mqttBrokerPort
+          : savedBrokerPort;
+      if (savedBrokerPort != brokerPort) {
+        await prefs.setInt(AppConfig.mqttBrokerPortKey, brokerPort);
+      }
 
       final adminMode = prefs.getBool(AppConfig.adminModeKey) ?? false;
       _deviceRole =
@@ -114,9 +121,19 @@ class _AppContainerState extends State<AppContainer>
           AppConfig.defaultDeviceRole;
 
       final savedApiUrl = prefs.getString(AppConfig.apiServerUrlKey);
-      final apiBaseUrl = savedApiUrl ?? AppConfig.apiBaseUrl;
+      final apiBaseUrl =
+          savedApiUrl == null || AppConfig.isLegacyApiUrl(savedApiUrl)
+          ? AppConfig.apiBaseUrl
+          : savedApiUrl;
+      if (savedApiUrl != apiBaseUrl) {
+        await prefs.setString(AppConfig.apiServerUrlKey, apiBaseUrl);
+      }
 
-      _mqttManager = MqttManager(deviceId: deviceId, brokerHost: brokerHost, brokerPort: brokerPort);
+      _mqttManager = MqttManager(
+        deviceId: deviceId,
+        brokerHost: brokerHost,
+        brokerPort: brokerPort,
+      );
       _downloadManager = DownloadManager(baseUrl: apiBaseUrl);
       _playbackManager = PlaybackManager(downloadManager: _downloadManager);
       _shadowSync = ShadowSyncService(
@@ -169,9 +186,12 @@ class _AppContainerState extends State<AppContainer>
       print('🦋 [Shorebird] 開始檢查熱補丁更新...');
 
       final currentPatch = await _shorebirdCodePush.currentPatchNumber();
-      print('🦋 [Shorebird] 當前 Patch 版本: ${currentPatch ?? "Base Release (無補丁)"}');
+      print(
+        '🦋 [Shorebird] 當前 Patch 版本: ${currentPatch ?? "Base Release (無補丁)"}',
+      );
 
-      final isAvailable = await _shorebirdCodePush.isNewPatchAvailableForDownload();
+      final isAvailable = await _shorebirdCodePush
+          .isNewPatchAvailableForDownload();
       if (isAvailable) {
         print('📥 [Shorebird] 發現新版 Patch！開始背景靜默下載...');
         await _shorebirdCodePush.downloadUpdateIfAvailable();

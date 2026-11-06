@@ -16,6 +16,14 @@ class AppConfig {
     'MQTT_PORT',
     defaultValue: 0,
   );
+  static const bool mqttUseWebSocket = bool.fromEnvironment(
+    'MQTT_USE_WEBSOCKET',
+    defaultValue: false,
+  );
+  static const String mqttWebSocketPath = String.fromEnvironment(
+    'MQTT_WEBSOCKET_PATH',
+    defaultValue: '/mqtt',
+  );
   static const bool mqttUseTls = bool.fromEnvironment(
     'MQTT_USE_TLS',
     defaultValue: false,
@@ -80,6 +88,15 @@ class AppConfig {
       '10.0.2.2',
       '192.168.0.103',
     }.contains(host);
+  }
+
+  static bool isLegacyApiUrl(String url) {
+    final uri = Uri.tryParse(url);
+    if (uri == null) return true;
+    return uri.host.isEmpty ||
+        uri.host == 'robusttaxi.azurewebsites.net' ||
+        isLegacyLocalMqttHost(uri.host) ||
+        (uri.host == developmentServerHost && uri.port == 8080);
   }
 
   // API 版本

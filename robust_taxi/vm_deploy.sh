@@ -26,13 +26,16 @@ fi
 docker compose "${COMPOSE_ARGS[@]}" config > /dev/null
 echo "  env 與 Compose 設定有效"
 
-echo "=== 3/4 重建 app + worker ==="
-docker compose "${COMPOSE_ARGS[@]}" up -d --build smart_taxi_service mqtt_worker
+echo "=== 3/4 重建 app + worker + port 80 gateway ==="
+docker compose "${COMPOSE_ARGS[@]}" up -d --build smart_taxi_service mqtt_worker gateway
 
 echo "=== 4/4 驗證 ==="
 sleep 6
 HEALTH=$(curl -fsS http://localhost:8080/health)
 echo "  health: $HEALTH"
 echo "$HEALTH" | grep -q '"status":"healthy"'
+GATEWAY_HEALTH=$(curl -fsS http://localhost/health)
+echo "  port 80 health: $GATEWAY_HEALTH"
+echo "$GATEWAY_HEALTH" | grep -q '"status":"healthy"'
 docker compose "${COMPOSE_ARGS[@]}" ps --format 'table {{.Name}}\t{{.Status}}'
 echo "✅ 部署完成。"

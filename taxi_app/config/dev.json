@@ -1,8 +1,10 @@
 {
   "APP_ENV": "development",
-  "API_BASE_URL": "http://13.70.26.4:8080",
+  "API_BASE_URL": "http://13.70.26.4",
   "MQTT_HOST": "13.70.26.4",
-  "MQTT_PORT": "1883",
+  "MQTT_PORT": "80",
+  "MQTT_USE_WEBSOCKET": "true",
+  "MQTT_WEBSOCKET_PATH": "/mqtt",
   "MQTT_USE_TLS": "false",
   "MQTT_USERNAME": "",
   "MQTT_PASSWORD": ""

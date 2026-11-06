@@ -46,8 +46,12 @@ class MqttManager {
       final clientId =
           'taxi-app-$deviceId-${DateTime.now().millisecondsSinceEpoch}';
       final host = AppConfig.resolveMqttHost(brokerHost);
+      final server = AppConfig.mqttUseWebSocket
+          ? 'ws://$host${AppConfig.mqttWebSocketPath}'
+          : host;
 
-      _client = MqttServerClient.withPort(host, clientId, brokerPort);
+      _client = MqttServerClient.withPort(server, clientId, brokerPort);
+      _client!.useWebSocket = AppConfig.mqttUseWebSocket;
       _client!.secure = AppConfig.mqttUseTls;
       _client!.logging(on: false);
       _client!.keepAlivePeriod = AppConfig.mqttKeepAlive.inSeconds;
@@ -73,7 +77,7 @@ class MqttManager {
 
       _client!.connectionMessage = connMessage;
 
-      print('📡 連接 MQTT Broker: $host:$brokerPort (device: $deviceId)');
+      print('📡 連接 MQTT Broker: $server:$brokerPort (device: $deviceId)');
       await _client!.connect();
 
       if (_client!.connectionStatus?.state != MqttConnectionState.connected) {
